@@ -1,0 +1,27 @@
+.
+├── backend
+│   ├── app
+│   │   ├── __init__.py
+│   │   ├── api
+│   │   ├── core
+│   │   ├── models
+│   │   └── services
+│   ├── outputs
+│   ├── static
+│   ├── tests
+│   └── uploads
+├── docs
+│   └── plans
+│       ├── 2026-02-22-video-srt-generator-design.md
+│       └── 2026-02-22-video-srt-generator.md
+└── frontend
+    ├── public
+    └── src
+        ├── assets
+        ├── components
+        ├── router
+        ├── stores
+        ├── styles
+        └── views
+
+22 directories, 3 files
