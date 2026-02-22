@@ -53,11 +53,11 @@ class ASRModel:
             try:
                 cls._model = Qwen3ASRModel.from_pretrained(
                     asr_model_path,
-                    dtype=torch.float16 if cls._is_cuda_available() else torch.float32,
+                    dtype=torch.bfloat16 if cls._is_cuda_available() else torch.float32,
                     device_map="cuda:0" if cls._is_cuda_available() else "cpu",
                     forced_aligner=forced_aligner_path,
                     forced_aligner_kwargs=dict(
-                        dtype=torch.float16 if cls._is_cuda_available() else torch.float32,
+                        dtype=torch.bfloat16 if cls._is_cuda_available() else torch.float32,
                         device_map="cuda:0" if cls._is_cuda_available() else "cpu",
                     ),
                     max_inference_batch_size=32,
@@ -87,7 +87,8 @@ async def transcribe_audio(
     aligner_path: Optional[Path] = None,
     language: str = "zh",
     task: str = "transcribe",
-    chunk_length_s: int = 30
+    chunk_length_s: int = 30,
+    save_raw_result: bool = False
 ) -> Dict:
     """
     使用 Qwen3-ASR 进行语音识别
@@ -99,6 +100,7 @@ async def transcribe_audio(
         language: 语言代码 (zh/en等)
         task: 任务类型 (transcribe/translate) - 保留兼容性
         chunk_length_s: 分块长度（秒）- 保留兼容性
+        save_raw_result: 是否保存原始 ASR 结果为 JSON 文件
 
     Returns:
         Dict: {
@@ -152,6 +154,26 @@ async def transcribe_audio(
             # 提取文本和时间戳
             text = result.text
             logger.info(f"ASR 识别完成，文本长度: {len(text)} 字符")
+
+            # 保存原始 ASR 结果为 JSON 文件（如果需要）
+            if save_raw_result and result.time_stamps is not None:
+                import json
+                raw_result = {
+                    'text': text,
+                    'time_stamps': []
+                }
+                for item in result.time_stamps:
+                    raw_result['time_stamps'].append({
+                        'start_time': float(item.start_time),
+                        'end_time': float(item.end_time),
+                        'text': str(item.text)
+                    })
+
+                # 生成 JSON 文件路径（与音频文件同名）
+                json_path = audio_path.with_suffix('.json')
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(raw_result, f, ensure_ascii=False, indent=4)
+                logger.info(f"原始 ASR 结果已保存到: {json_path}")
 
             # Qwen3-ForcedAligner 返回的时间戳是 token/字符级别的
             # 注意：time_stamps 不包含标点符号，但 result.text 包含
@@ -324,94 +346,95 @@ def _merge_char_segments_to_sentences_with_text(
     """
     基于full_text按标点切分句子，并从time_stamps中找到对应的时间戳
 
+    Qwen3-ASR 的 time_stamps 特点：
+    1. 每个 item 包含多个字符（不是单字符级别）
+    2. time_stamps 不包含标点符号
+    3. 需要通过字符位置映射来找到对应关系
+
     策略：
-    1. 按full_text中的标点符号切分成句子
-    2. 在char_segments中找到每个句子的开始和结束时间
+    1. 按full_text中的标点符号切分成句子，记录每个句子的位置
+    2. 构建字符位置到time_stamps索引的映射
+    3. 通过位置映射获取每个句子对应的时间戳
 
     Args:
-        char_segments: 字符级别的时间戳列表（来自time_stamps）
+        char_segments: 时间戳列表（来自time_stamps，每个item含多个字符）
         full_text: 包含标点的完整文本（来自result.text）
 
     Returns:
         List[Dict]: 带标点和时间戳的句子列表
     """
+    import re
+
     if not char_segments or not full_text:
         return []
 
-    # 移除full_text中的空格
-    clean_text = full_text.replace(' ', '').replace('\n', '').replace('\t', '')
+    logger.info(f"_merge_char_segments_to_sentences_with_text: full_text长度={len(full_text)}, char_segments数量={len(char_segments)}")
 
-    # 按标点符号切分clean_text
-    sentence_end_punct = ['。', '！', '？', '.', '!', '?']
+    # 1. 构建字符位置到 time_stamps 索引的映射
+    position_map = []
+    for idx, seg in enumerate(char_segments):
+        text_length = len(seg['text'])
+        for _ in range(text_length):
+            position_map.append(idx)
 
-    # 切分成句子，记录每个句子在clean_text中的字符位置
+    # 2. 按标点分割句子，同时记录位置
+    pattern = r'[^。！？\.\!\?]+[。！？\.\!\?]'
     sentences_with_pos = []
-    current = []
-    start_pos = 0
+    for match in re.finditer(pattern, full_text):
+        sentences_with_pos.append((match.group(), match.start(), match.end()))
 
-    for i, char in enumerate(clean_text):
-        current.append(char)
-        if char in sentence_end_punct:
-            sentence_text = ''.join(current)
-            end_pos = i + 1
-            sentences_with_pos.append({
-                'text': sentence_text,
-                'start_pos': start_pos,
-                'end_pos': end_pos
-            })
-            current = []
-            start_pos = i + 1
-
-    # 处理剩余部分
-    if current:
-        sentence_text = ''.join(current)
-        if sentences_with_pos and len(sentence_text) < 5:
-            # 合并到上一句
-            sentences_with_pos[-1]['text'] += sentence_text
-            sentences_with_pos[-1]['end_pos'] = len(clean_text)
-        else:
-            sentences_with_pos.append({
-                'text': sentence_text,
-                'start_pos': start_pos,
-                'end_pos': len(clean_text)
-            })
-
-    if not sentences_with_pos:
+    # 处理可能剩下的文本
+    if sentences_with_pos:
+        last_end = sentences_with_pos[-1][2]
+        if last_end < len(full_text):
+            remaining = full_text[last_end:].strip()
+            if remaining:
+                sentences_with_pos.append((remaining, last_end, len(full_text)))
+    else:
         # 没有标点，返回原始segments
         return char_segments
 
-    # 为每个句子从char_segments中找到对应的时间戳
-    # 策略：按字符比例匹配
+    logger.info(f"按标点切分后句子数量: {len(sentences_with_pos)}")
+
+    # 辅助函数: 将包含标点的位置转换为去除标点后的位置
+    def get_clean_position(text: str, pos: int) -> int:
+        """将包含标点的文本位置转换为去除标点后的位置"""
+        punct_before = len(re.findall(r'[\s，,、;：:。！？\.\!\?]', text[:pos]))
+        return pos - punct_before
+
+    # 辅助函数: 根据字符位置获取时间戳
+    def get_time_at_position(char_pos: int) -> tuple:
+        """根据字符位置获取 (start_time, end_time)"""
+        if char_pos < 0:
+            char_pos = 0
+        if char_pos >= len(position_map):
+            char_pos = len(position_map) - 1
+
+        idx = position_map[char_pos]
+        return char_segments[idx]['start'], char_segments[idx]['end']
+
+    # 3. 为每个句子分配时间戳
     result = []
+    for i, (sentence, start_pos, end_pos) in enumerate(sentences_with_pos):
+        # 计算去除标点后的字符位置
+        clean_start = get_clean_position(full_text, start_pos)
+        clean_end = get_clean_position(full_text, end_pos)
 
-    for sent in sentences_with_pos:
-        sent_text = sent['text'].replace(' ', '')
-        start_pos = sent['start_pos']
-        end_pos = sent['end_pos']
+        # 边界检查
+        clean_start = max(0, min(clean_start, len(position_map) - 1))
+        clean_end = max(0, min(clean_end - 1, len(position_map) - 1))
 
-        # 计算这个句子对应char_segments的哪个范围
-        total_chars = len(clean_text)
-        start_ratio = start_pos / total_chars
-        end_ratio = end_pos / total_chars
-
-        # 在char_segments中找到对应的时间
-        total_segments = len(char_segments)
-        start_idx = int(start_ratio * total_segments)
-        end_idx = int(end_ratio * total_segments)
-
-        # 确保索引有效
-        start_idx = max(0, min(start_idx, len(char_segments) - 1))
-        end_idx = max(start_idx + 1, min(end_idx, len(char_segments)))
-
-        start_time = char_segments[start_idx]['start']
-        end_time = char_segments[end_idx - 1]['end']
+        # 获取时间戳
+        start_time, _ = get_time_at_position(clean_start)
+        _, end_time = get_time_at_position(clean_end)
 
         result.append({
             'start': start_time,
             'end': end_time,
-            'text': sent_text
+            'text': sentence.strip()
         })
 
+    logger.info(f"最终生成 {len(result)} 条字幕")
     return result
 
 

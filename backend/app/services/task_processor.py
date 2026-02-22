@@ -147,7 +147,10 @@ async def process_task(
             for attempt in range(settings.MAX_RETRY_ATTEMPTS):
                 try:
                     await _log(db, task_id, 'info', f'  片段 {i+1}: 进行第 {attempt+1} 次识别尝试...', progress_queue)
-                    asr_result = await transcribe_audio(Path(seg_info['audio_path']))
+                    asr_result = await transcribe_audio(
+                        Path(seg_info['audio_path']),
+                        save_raw_result=True  # 保存原始 ASR 结果为 JSON
+                    )
                     segments_count = len(asr_result.get('segments', []))
 
                     # 调整时间偏移：每个片段的时间戳需要加上该片段在原始音频中的起始时间

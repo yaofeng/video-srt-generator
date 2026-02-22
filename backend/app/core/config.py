@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     QWEN_ALIGNER_MODEL: str = "Qwen/Qwen3-ForcedAligner-0.6B"
 
     # 音频切分配置
-    SEGMENT_MIN_DURATION: int = 180
-    SEGMENT_MAX_DURATION: int = 300
+    SEGMENT_MIN_DURATION: int = 30
+    SEGMENT_MAX_DURATION: int = 120
     VAD_SILENCE_THRESHOLD: float = 0.5
 
     # 字幕生成配置
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     LLM_MODEL: str = ""
 
     # 翻译配置
-    DEFAULT_TARGET_LANGUAGE: str = "en"
+    DEFAULT_TARGET_LANGUAGE: str = "zh"
     TRANSLATION_GROUP_INTERVAL: float = 3.0
     TRANSLATION_MAX_SENTENCES_PER_GROUP: int = 5
     TRANSLATION_RETRY_ATTEMPTS: int = 3
@@ -69,13 +69,8 @@ class Settings(BaseSettings):
 
     # 支持的语言列表
     SUPPORTED_LANGUAGES: List[dict] = [
+        {"code": "zh", "name": "中文"},
         {"code": "en", "name": "英语"},
-        {"code": "ja", "name": "日语"},
-        {"code": "ko", "name": "韩语"},
-        {"code": "fr", "name": "法语"},
-        {"code": "de", "name": "德语"},
-        {"code": "es", "name": "西班牙语"},
-        {"code": "zh_hant", "name": "繁体中文"},
     ]
 
     model_config = SettingsConfigDict(env_file=".env")
