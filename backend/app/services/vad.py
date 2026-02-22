@@ -1,7 +1,7 @@
 # backend/app/services/vad.py
 import asyncio
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,16 +13,52 @@ except ImportError:
     np = None
 
 try:
-    import librosa
-except ImportError:
-    logger.warning("librosa 未安装，将使用简化的 VAD 实现")
-    librosa = None
-
-try:
     import ffmpeg
 except ImportError:
     logger.error("ffmpeg-python 未安装")
     ffmpeg = None
+
+
+class VADModel:
+    """fsmn-vad 模型单例"""
+    _model = None
+    _model_path = None
+
+    @classmethod
+    def get_model(cls, model_path: Optional[Path] = None):
+        """获取 fsmn-vad 模型实例"""
+        if cls._model is None:
+            from funasr import AutoModel
+
+            # 如果未指定路径，使用默认模型名称
+            if model_path is None:
+                model_name = "fsmn-vad"
+            else:
+                model_name = str(model_path)
+
+            logger.info(f"加载 fsmn-vad 模型: {model_name}")
+
+            try:
+                cls._model = AutoModel(
+                    model=model_name,
+                    model_revision="v2.0.4",
+                    device="cuda" if cls._is_cuda_available() else "cpu"
+                )
+                logger.info("fsmn-vad 模型加载成功")
+            except Exception as e:
+                logger.error(f"fsmn-vad 模型加载失败: {str(e)}")
+                raise RuntimeError(f"fsmn-vad 模型加载失败: {str(e)}")
+
+        return cls._model
+
+    @classmethod
+    def _is_cuda_available(cls) -> bool:
+        """检查 CUDA 是否可用"""
+        try:
+            import torch
+            return torch.cuda.is_available()
+        except ImportError:
+            return False
 
 
 async def detect_speech_activity(
@@ -30,11 +66,11 @@ async def detect_speech_activity(
     threshold: float = 0.5
 ) -> List[Tuple[float, float]]:
     """
-    检测语音活动
+    使用 fsmn-vad 检测语音活动
 
     Args:
         audio_path: 音频文件路径
-        threshold: 语音概率阈值
+        threshold: 语音概率阈值 (fsmn-vad 内部使用)
 
     Returns:
         List[Tuple[float, float]]: [(start_time, end_time), ...] 语音片段列表
@@ -42,94 +78,51 @@ async def detect_speech_activity(
     if np is None:
         raise RuntimeError("numpy 模块未安装")
 
-    return await _energy_based_vad(audio_path, threshold)
-
-
-async def _energy_based_vad(
-    audio_path: Path,
-    threshold: float
-) -> List[Tuple[float, float]]:
-    """
-    基于能量的简单 VAD 算法
-
-    使用短时能量（STE）进行语音活动检测
-    """
-    if np is None:
-        raise RuntimeError("numpy 模块未安装")
-
     def _detect():
-        # 加载音频
-        if librosa is not None:
-            y, sr = librosa.load(str(audio_path), sr=16000)
-        else:
-            # 如果没有 librosa，使用 soundfile 或 scipy
-            try:
-                import soundfile as sf
-                y, sr = sf.read(str(audio_path))
-                if len(y.shape) > 1:
-                    y = y[:, 0]  # 取第一个声道
-                if sr != 16000:
-                    # 简单的重采样
-                    from scipy import signal
-                    number_of_samples = round(len(y) * float(16000) / sr)
-                    y = signal.resample(y, number_of_samples)
-                    sr = 16000
-            except ImportError:
-                raise RuntimeError("需要安装 librosa 或 soundfile 来处理音频文件")
+        try:
+            # 加载模型
+            model = VADModel.get_model()
 
-        # 参数设置
-        frame_length = int(0.025 * sr)  # 25ms 帧长
-        hop_length = int(0.010 * sr)    # 10ms 帧移
+            # 加载音频
+            import soundfile as sf
+            waveform, sample_rate = sf.read(str(audio_path))
 
-        # 计算短时能量
-        energy = []
-        for i in range(0, len(y) - frame_length, hop_length):
-            frame = y[i:i + frame_length]
-            energy.append(np.sum(frame ** 2))
+            # 确保单声道
+            if len(waveform.shape) > 1:
+                waveform = waveform[:, 0]
 
-        energy = np.array(energy)
+            # 重采样到 16kHz（fsmn-vad 要求）
+            if sample_rate != 16000:
+                from scipy import signal
+                number_of_samples = round(len(waveform) * float(16000) / sample_rate)
+                waveform = signal.resample(waveform, number_of_samples)
+                sample_rate = 16000
 
-        # 归一化能量
-        if len(energy) > 0 and np.max(energy) > 0:
-            energy = energy / np.max(energy)
+            # 使用 fsmn-vad 进行语音活动检测
+            # fsmn-vad 期望输入格式: [numpy.ndarray, sample_rate]
+            vad_result = model.generate(
+                input=[waveform],
+                batch_size_s=300  # 5 分钟批量处理
+            )
 
-        # 阈值检测
-        speech_frames = energy > threshold
+            # 解析结果
+            segments = []
+            if vad_result and len(vad_result) > 0:
+                # fsmn-vad 返回格式: [{'value': [{'start': ms, 'end': ms}, ...]}]
+                for segment in vad_result[0].get('value', []):
+                    start_ms = segment.get('start', 0)
+                    end_ms = segment.get('end', 0)
+                    # 转换为秒
+                    segments.append((start_ms / 1000.0, end_ms / 1000.0))
 
-        # 转换为时间片段
-        segments = []
-        start_time = None
+            logger.info(f"fsmn-vad 检测到 {len(segments)} 个语音片段")
+            return segments
 
-        for i, is_speech in enumerate(speech_frames):
-            time = i * hop_length / sr
-
-            if is_speech and start_time is None:
-                start_time = time
-            elif not is_speech and start_time is not None:
-                # 只有当静音持续超过一定时间时才切分
-                segments.append((start_time, time))
-                start_time = None
-
-        # 添加最后一个片段
-        if start_time is not None:
-            segments.append((start_time, len(y) / sr))
-
-        # 合并相邻的短片段
-        if segments:
-            merged = []
-            current_start, current_end = segments[0]
-
-            for start, end in segments[1:]:
-                if start - current_end < 0.5:  # 间隔小于 0.5 秒则合并
-                    current_end = end
-                else:
-                    merged.append((current_start, current_end))
-                    current_start, current_end = start, end
-
-            merged.append((current_start, current_end))
-            segments = merged
-
-        return segments
+        except ImportError:
+            raise RuntimeError("需要安装 funasr 和 soundfile 来使用 fsmn-vad")
+        except Exception as e:
+            logger.exception(f"VAD 检测失败: {audio_path}")
+            raise RuntimeError(f"VAD 检测失败: {str(e)}")
 
     return await asyncio.get_event_loop().run_in_executor(None, _detect)
 
@@ -143,6 +136,7 @@ async def split_audio_by_vad(
 ) -> List[Dict]:
     """
     根据 VAD 结果切分音频
+    策略：以 5 分钟为单位，找出最大间隔进行切分
 
     Args:
         audio_path: 音频文件路径
@@ -164,14 +158,16 @@ async def split_audio_by_vad(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 检测语音活动
+    # 使用 fsmn-vad 检测语音活动
     speech_segments = await detect_speech_activity(audio_path, threshold=silence_threshold)
 
     if not speech_segments:
-        # 如果没有检测到语音活动，使用整个音频
-        speech_segments = [(0.0, await get_audio_duration(audio_path))]
+        # 如果没有检测到语音活动，获取整个音频时长
+        duration = await get_audio_duration(audio_path)
+        speech_segments = [(0.0, duration)]
 
     # 合并和切分片段
+    # 策略：以 5 分钟为单位，找出最大间隔进行切分
     final_segments = _merge_segments_to_duration(
         speech_segments,
         min_duration=min_duration,
@@ -195,11 +191,12 @@ def _merge_segments_to_duration(
 ) -> List[Dict]:
     """
     将语音片段合并为目标时长（3-5分钟）
+    策略：以 5 分钟（max_duration）为单位，找出最大间隔进行切分
 
     Args:
         speech_segments: 语音片段列表 [(start, end), ...]
-        min_duration: 最小时长
-        max_duration: 最大时长
+        min_duration: 最小时长（秒）
+        max_duration: 最大时长（秒）- 这是我们希望的目标单位
 
     Returns:
         List[Dict]: 合并后的片段信息
@@ -208,38 +205,60 @@ def _merge_segments_to_duration(
         return []
 
     final_segments = []
-    current_start = speech_segments[0][0]
-    current_end = speech_segments[0][1]
 
-    for i in range(1, len(speech_segments)):
-        seg_start, seg_end = speech_segments[i]
-        gap = seg_start - current_end
+    # 策略：以 max_duration（5分钟）为单位遍历时间轴
+    # 找出每个单位窗口内的所有语音片段，合并它们
+    total_end = speech_segments[-1][1]
 
-        # 检查当前累积时长
-        current_duration = current_end - current_start
+    window_start = speech_segments[0][0]
+    window_end = window_start + max_duration
 
-        # 如果当前片段已达到或超过最大时长，或者遇到长静音且当前片段满足最小时长
-        if (current_duration >= max_duration) or \
-           (gap >= 1.0 and current_duration >= min_duration):
+    i = 0
+    while i < len(speech_segments):
+        # 收集当前窗口内的所有语音片段
+        window_segments = []
+        current_window_start = None
+
+        while i < len(speech_segments):
+            seg_start, seg_end = speech_segments[i]
+
+            # 如果这个片段的开始时间在当前窗口内
+            if seg_start < window_end:
+                window_segments.append((seg_start, seg_end))
+                if current_window_start is None:
+                    current_window_start = seg_start
+                i += 1
+            else:
+                # 这个片段在当前窗口外，需要检查是否可以跨窗口
+                # 如果当前窗口已经有足够的语音，就结束当前窗口
+                current_window_end = max([s[1] for s in window_segments]) if window_segments else seg_start
+
+                # 计算当前窗口的语音时长
+                speech_duration = sum([s[1] - s[0] for s in window_segments])
+
+                # 如果语音时长达到最小时长，或者当前窗口已满
+                if speech_duration >= min_duration or (seg_start - window_start) >= max_duration:
+                    break
+                else:
+                    # 继续累积到下一个窗口
+                    window_segments.append((seg_start, seg_end))
+                    i += 1
+
+        if window_segments:
+            # 合并当前窗口的片段为一个输出片段
+            merged_start = window_segments[0][0]
+            merged_end = window_segments[-1][1]
+            merged_duration = merged_end - merged_start
 
             final_segments.append({
-                'start_time': current_start,
-                'end_time': current_end,
-                'duration': current_end - current_start
+                'start_time': merged_start,
+                'end_time': merged_end,
+                'duration': merged_duration
             })
-            current_start = seg_start
-            current_end = seg_end
-        else:
-            # 继续累积
-            current_end = seg_end
 
-    # 添加最后一个片段
-    if current_end > current_start:
-        final_segments.append({
-            'start_time': current_start,
-            'end_time': current_end,
-            'duration': current_end - current_start
-        })
+        # 移动窗口到下一个单位
+        window_start = window_end
+        window_end = window_start + max_duration
 
     return final_segments
 
