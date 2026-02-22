@@ -12,12 +12,90 @@
 
         <h1 class="title">字幕预览</h1>
 
-        <button @click="downloadSrt" class="download-button">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
-          </svg>
-          下载 SRT
+        <div class="header-actions">
+          <!-- 翻译按钮 -->
+          <button
+            v-if="!hasTranslation && !translationInProgress"
+            @click="showTranslationModal = true"
+            class="translate-button"
+          >
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M7 2a1 1 0 00-.707.293l-4 4a1 1 0 000 1.414l4 4A1 1 0 107.414 9.414L6.414 7H11a7 7 0 017 7v2a7 7 0 01-14 0H2a9 9 0 0118 0v-2a9 9 0 00-9-9h-.586l3.293-3.293a1 1 0 10-1.414-1.414l-5 5a1 1 0 000 1.414l5 5a1 1 0 101.414-1.414L8.414 7H7z" clip-rule="evenodd"/>
+            </svg>
+            翻译字幕
+          </button>
+
+          <!-- 下载按钮（下拉菜单） -->
+          <div class="download-dropdown" ref="downloadDropdown">
+            <button @click="toggleDownloadMenu" class="download-button">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+              下载 SRT
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M6 8L2 4h8L6 8z"/>
+              </svg>
+            </button>
+            <div v-if="showDownloadMenu" class="download-menu">
+              <button @click="downloadSrt('original')">
+                <span class="flag">🎬</span> 下载原文
+              </button>
+              <button
+                v-for="lang in translatedLanguages"
+                :key="lang"
+                @click="downloadSrt(lang)"
+              >
+                <span class="flag">{{ getLanguageFlag(lang) }}</span>
+                下载{{ getLanguageName(lang) }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 语言切换器 -->
+      <div class="language-tabs" v-if="availableLanguages.length > 1">
+        <button
+          v-for="lang in availableLanguages"
+          :key="lang.code"
+          :class="['tab', { active: currentLanguage === lang.code }]"
+          @click="switchLanguage(lang.code)"
+        >
+          {{ lang.flag }} {{ lang.name }}
         </button>
+      </div>
+
+      <!-- 翻译模态框 -->
+      <div v-if="showTranslationModal" class="modal-overlay" @click="showTranslationModal = false">
+        <div class="modal-content" @click.stop>
+          <h2>选择翻译语言</h2>
+          <div class="language-grid">
+            <button
+              v-for="lang in supportedLanguages"
+              :key="lang.code"
+              @click="startTranslation(lang.code)"
+              :class="['language-option', { disabled: isLanguageTranslated(lang.code) }]"
+              :disabled="isLanguageTranslated(lang.code)"
+            >
+              <span class="flag">{{ lang.flag }}</span>
+              <span class="name">{{ lang.name }}</span>
+              <span v-if="isLanguageTranslated(lang.code)" class="status">✓</span>
+            </button>
+          </div>
+          <button @click="showTranslationModal = false" class="modal-close">取消</button>
+        </div>
+      </div>
+
+      <!-- 翻译进度模态框 -->
+      <div v-if="translationInProgress" class="modal-overlay">
+        <div class="modal-content translation-progress">
+          <h2>正在翻译...</h2>
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: translationProgress + '%' }"></div>
+          </div>
+          <p class="progress-text">{{ translationStep }}</p>
+          <p class="progress-percent">{{ translationProgress }}%</p>
+        </div>
       </div>
 
       <!-- 主内容区域：左右布局 -->
@@ -111,7 +189,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'
 
@@ -123,12 +201,59 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
 const videoPlayer = ref(null)
 const subtitlesList = ref(null)
+const downloadDropdown = ref(null)
 const task = ref({})
 const subtitles = ref([])
+const translations = ref([])
 const currentTime = ref(0)
 const searchQuery = ref('')
 const timeFilterStart = ref('')
 const timeFilterEnd = ref('')
+
+// 翻译相关状态
+const currentLanguage = ref('original')
+const showDownloadMenu = ref(false)
+const showTranslationModal = ref(false)
+const translationInProgress = ref(false)
+const translationProgress = ref(0)
+const translationStep = ref('')
+
+// 支持的语言
+const supportedLanguages = [
+  { code: 'en', name: '英语', flag: '🇬🇧' },
+  { code: 'ja', name: '日语', flag: '🇯🇵' },
+  { code: 'ko', name: '韩语', flag: '🇰🇷' },
+  { code: 'fr', name: '法语', flag: '🇫🇷' },
+  { code: 'de', name: '德语', flag: '🇩🇪' },
+  { code: 'es', name: '西班牙语', flag: '🇪🇸' },
+  { code: 'zh_hant', name: '繁体中文', flag: '🇹🇼' }
+]
+
+// 可用的语言列表（包括原文和已翻译的语言）
+const availableLanguages = computed(() => {
+  const langs = [{ code: 'original', name: '原文', flag: '🎬' }]
+  translations.value.forEach(t => {
+    if (t.status === 'completed') {
+      const langInfo = supportedLanguages.find(l => l.code === t.language)
+      if (langInfo) {
+        langs.push({ code: t.language, name: langInfo.name, flag: langInfo.flag })
+      }
+    }
+  })
+  return langs
+})
+
+// 已翻译的语言列表
+const translatedLanguages = computed(() => {
+  return translations.value
+    .filter(t => t.status === 'completed')
+    .map(t => t.language)
+})
+
+// 是否有任何翻译
+const hasTranslation = computed(() => {
+  return translations.value.some(t => t.status === 'completed')
+})
 
 const videoUrl = computed(() => {
   if (task.value.file_path) {
@@ -251,44 +376,190 @@ const goBack = () => {
 }
 
 // 下载 SRT 文件
-const downloadSrt = async () => {
+const downloadSrt = async (lang = null) => {
   try {
-    const response = await axios.get(`${API_BASE}/api/tasks/${taskId}/download`, {
-      responseType: 'blob'
-    })
+    const url = lang
+      ? `${API_BASE}/api/tasks/${taskId}/download-srt?lang=${lang}`
+      : `${API_BASE}/api/tasks/${taskId}/download-srt`
 
-    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const response = await axios.get(url, { responseType: 'blob' })
+
+    const blob = new Blob([response.data])
+    const downloadUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `${task.value.filename}_字幕.srt`)
+    link.href = downloadUrl
+
+    // 确定文件名
+    let filename = task.value.filename || 'video'
+    const baseName = filename.replace(/\.[^/.]+$/, '')
+    if (lang) {
+      const langName = getLanguageName(lang)
+      link.setAttribute('download', `${baseName}_字幕_${langName}.srt`)
+    } else {
+      link.setAttribute('download', `${baseName}_字幕.srt`)
+    }
+
     document.body.appendChild(link)
     link.click()
     link.remove()
-    window.URL.revokeObjectURL(url)
+    window.URL.revokeObjectURL(downloadUrl)
+
+    showDownloadMenu.value = false
   } catch (error) {
     console.error('下载失败:', error)
     alert('下载失败，请重试')
   }
 }
 
+// 切换下载菜单
+const toggleDownloadMenu = () => {
+  showDownloadMenu.value = !showDownloadMenu.value
+}
+
+// 获取语言名称
+const getLanguageName = (code) => {
+  const lang = supportedLanguages.find(l => l.code === code)
+  return lang ? lang.name : code
+}
+
+// 获取语言标志
+const getLanguageFlag = (code) => {
+  const lang = supportedLanguages.find(l => l.code === code)
+  return lang ? lang.flag : '🌐'
+}
+
+// 检查语言是否已翻译
+const isLanguageTranslated = (code) => {
+  return translations.value.some(t => t.language === code && t.status === 'completed')
+}
+
+// 切换语言
+const switchLanguage = async (lang) => {
+  currentLanguage.value = lang
+  await loadSubtitles(lang)
+}
+
+// 加载字幕数据
+const loadSubtitles = async (lang = null) => {
+  try {
+    const url = lang
+      ? `${API_BASE}/api/tasks/${taskId}/subtitles?lang=${lang}`
+      : `${API_BASE}/api/tasks/${taskId}/subtitles`
+
+    const response = await axios.get(url)
+    subtitles.value = response.data.subtitles || []
+  } catch (error) {
+    console.error('加载字幕失败:', error)
+  }
+}
+
+// 开始翻译
+const startTranslation = async (targetLanguage) => {
+  showTranslationModal.value = false
+  translationInProgress.value = true
+  translationProgress.value = 0
+  translationStep.value = '正在创建翻译任务...'
+
+  try {
+    // 创建翻译任务
+    const response = await axios.post(`${API_BASE}/api/tasks/${taskId}/translate`, {
+      target_language: targetLanguage
+    })
+
+    const translationTaskId = response.data.translation_task_id
+
+    // 轮询翻译状态
+    pollTranslationStatus(translationTaskId, targetLanguage)
+  } catch (error) {
+    console.error('翻译失败:', error)
+    alert(error.response?.data?.detail || '翻译失败，请重试')
+    translationInProgress.value = false
+  }
+}
+
+// 轮询翻译状态
+const pollTranslationStatus = async (translationTaskId, targetLanguage) => {
+  const pollInterval = setInterval(async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/api/tasks/${taskId}/translations`)
+      const translation = response.data.translations.find(
+        t => t.id === translationTaskId
+      )
+
+      if (!translation) {
+        clearInterval(pollInterval)
+        translationInProgress.value = false
+        return
+      }
+
+      translationProgress.value = translation.progress || 0
+
+      if (translation.status === 'completed') {
+        clearInterval(pollInterval)
+        translationInProgress.value = false
+        translationProgress.value = 100
+
+        // 重新加载翻译列表和字幕
+        await loadTranslations()
+        await loadSubtitles(currentLanguage.value)
+
+        // 如果当前不在该语言，切换到翻译后的语言
+        if (currentLanguage.value === 'original') {
+          currentLanguage.value = targetLanguage
+          await loadSubtitles(targetLanguage)
+        }
+      } else if (translation.status === 'failed') {
+        clearInterval(pollInterval)
+        translationInProgress.value = false
+        alert('翻译失败: ' + (translation.error_message || '未知错误'))
+      }
+    } catch (error) {
+      console.error('获取翻译状态失败:', error)
+    }
+  }, 2000)
+}
+
+// 加载翻译列表
+const loadTranslations = async () => {
+  try {
+    const response = await axios.get(`${API_BASE}/api/tasks/${taskId}/translations`)
+    translations.value = response.data.translations || []
+  } catch (error) {
+    console.error('加载翻译列表失败:', error)
+  }
+}
+
 // 加载任务数据
 const loadTaskData = async () => {
   try {
-    const [taskRes, subtitlesRes] = await Promise.all([
-      axios.get(`${API_BASE}/api/tasks/${taskId}`),
-      axios.get(`${API_BASE}/api/tasks/${taskId}/subtitles`)
-    ])
-
+    const taskRes = await axios.get(`${API_BASE}/api/tasks/${taskId}`)
     task.value = taskRes.data
-    subtitles.value = subtitlesRes.data.subtitles || []
+
+    // 并行加载字幕和翻译列表
+    await Promise.all([
+      loadSubtitles(),
+      loadTranslations()
+    ])
   } catch (error) {
     console.error('加载数据失败:', error)
     alert('加载数据失败，请重试')
   }
 }
 
+// 点击外部关闭下载菜单
+const handleClickOutside = (event) => {
+  if (downloadDropdown.value && !downloadDropdown.value.contains(event.target)) {
+    showDownloadMenu.value = false
+  }
+}
+
 onMounted(() => {
   loadTaskData()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>
 
@@ -703,5 +974,255 @@ onMounted(() => {
   .subtitles-list {
     max-height: 400px;
   }
+}
+
+/* 翻译相关样式 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.translate-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--brand-cyan);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.813rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.translate-button:hover {
+  background: rgba(6, 182, 212, 0.2);
+  transform: translateY(-2px);
+}
+
+.download-dropdown {
+  position: relative;
+}
+
+.download-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-cyan));
+  color: white;
+  border-radius: 0.5rem;
+  font-size: 0.813rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.download-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
+}
+
+.download-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 0.5rem;
+  min-width: 180px;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.download-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.download-menu button:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--text-primary);
+}
+
+.download-menu .flag {
+  font-size: 1.125rem;
+}
+
+.language-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.tab:hover {
+  border-color: var(--brand-blue);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.tab.active {
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-cyan));
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 1rem;
+  padding: 2rem;
+  max-width: 500px;
+  width: 100%;
+}
+
+.modal-content h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 1.5rem 0;
+}
+
+.language-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.language-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0.75rem;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.language-option:hover:not(.disabled) {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--brand-blue);
+  transform: translateY(-2px);
+}
+
+.language-option.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.language-option .flag {
+  font-size: 2rem;
+}
+
+.language-option .name {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.language-option .status {
+  font-size: 1rem;
+  color: var(--brand-cyan);
+}
+
+.modal-close {
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.modal-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.translation-progress {
+  text-align: center;
+}
+
+.translation-progress h2 {
+  margin-bottom: 2rem;
+}
+
+.translation-progress .progress-bar {
+  width: 100%;
+  height: 12px;
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 9999px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.translation-progress .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand-blue), var(--brand-cyan));
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.translation-progress .progress-text {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.5rem 0;
+}
+
+.translation-progress .progress-percent {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--brand-cyan);
+  margin: 0;
 }
 </style>
