@@ -25,6 +25,7 @@ class Task(Base):
     subtitles = relationship("Subtitle", back_populates="task", cascade="all, delete-orphan")
     segments = relationship("Segment", back_populates="task", cascade="all, delete-orphan")
     logs = relationship("Log", back_populates="task", cascade="all, delete-orphan")
+    translation_tasks = relationship("TranslationTask", back_populates="parent_task", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index('ix_task_status_created', 'status', 'created_at'),
