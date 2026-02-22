@@ -24,6 +24,11 @@ const routes = [
     path: '/preview/:id',
     name: 'Preview',
     component: () => import('../views/PreviewView.vue')
+  },
+  {
+    path: '/config',
+    name: 'Config',
+    component: () => import('../views/ConfigView.vue')
   }
 ]
 

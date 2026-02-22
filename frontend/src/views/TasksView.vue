@@ -7,12 +7,20 @@
           <span class="title-icon">📋</span>
           任务历史
         </h1>
-        <button @click="goToUpload" class="upload-button">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10 5v10M5 10h5v5l5-5h-5V5l-5 5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          </svg>
-          上传新视频
-        </button>
+        <div class="header-actions">
+          <button @click="goToConfig" class="config-button">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 010-1.94C10.02.22 11.91.22 12.09.22c1.59 0 2.83.64 3.1 1.7.27 1.06 1.32 2.3 2.77 2.3 1.45 0 2.5-.84 2.77-2.3a1.532 1.532 0 012.98 0c.38 1.56-1.6 2.54-3.1 2.54-1.59 0-3.2-.64-3.57-1.7-.27-1.06-1.32-2.3-2.77-2.3-1.45 0-2.5.84-2.77 2.3a1.532 1.532 0 01-2.98 0zM3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm12 0H5v8h10V5z" clip-rule="evenodd"/>
+            </svg>
+            配置
+          </button>
+          <button @click="goToUpload" class="upload-button">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 5v10M5 10h5v5l5-5h-5V5l-5 5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </svg>
+            上传新视频
+          </button>
+        </div>
       </div>
 
       <!-- 过滤器 -->
@@ -252,6 +260,10 @@ const goToUpload = () => {
   router.push('/upload')
 }
 
+const goToConfig = () => {
+  router.push('/config')
+}
+
 onMounted(() => {
   loadTasks()
   // 定期刷新处理中的任务
@@ -300,6 +312,31 @@ onMounted(() => {
 
 .title-icon {
   font-size: 2rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.config-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--brand-blue);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.config-button:hover {
+  background: rgba(59, 130, 246, 0.2);
+  transform: translateY(-2px);
 }
 
 .upload-button {
