@@ -69,3 +69,4 @@ Thumbs.db
 uploads/*.tmp
 outputs/*.tmp
 *.log
+*.db
