@@ -78,19 +78,15 @@ echo -e "${GREEN}前端构建完成！${NC}"
 
 # 清理旧的静态文件
 echo -e "${YELLOW}[3/3] 复制构建产物到后端静态目录...${NC}"
-if [ -d "$STATIC_DIR" ]; then
-    echo -e "${YELLOW}清理旧的静态文件...${NC}"
-    rm -rf "$STATIC_DIR"/*
-else
-    echo -e "${YELLOW}创建静态文件目录...${NC}"
-    mkdir -p "$STATIC_DIR"
-fi
+echo -e "${YELLOW}清理旧的静态文件...${NC}"
+# 删除并重新创建静态目录，确保完全清空
+rm -rf "$STATIC_DIR"
+mkdir -p "$STATIC_DIR"
 
 # 复制构建产物
 echo -e "${YELLOW}正在复制文件...${NC}"
-# 使用 find 和 cp 来复制，避免通配符问题
-find dist -type f -exec cp {} "$STATIC_DIR/" \;
-find dist -type d -exec cp -r {} "$STATIC_DIR/" \; 2>/dev/null || true
+# 复制 dist 目录的内容到 static 目录（注意 dist/ 后面的斜杠和点号）
+cp -r dist/. "$STATIC_DIR/"
 
 # 验证复制结果
 if [ -f "$STATIC_DIR/index.html" ]; then
