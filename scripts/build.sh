@@ -12,7 +12,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # 获取脚本所在目录的父目录（项目根目录）
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR/.."
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 STATIC_DIR="$BACKEND_DIR/static"
@@ -34,6 +35,9 @@ if [ ! -d "$BACKEND_DIR" ]; then
     exit 1
 fi
 
+# 保存当前目录
+ORIGINAL_DIR="$(pwd)"
+
 # 进入前端目录
 echo -e "${YELLOW}[1/3] 进入前端目录...${NC}"
 cd "$FRONTEND_DIR"
@@ -41,22 +45,32 @@ cd "$FRONTEND_DIR"
 # 检查 package.json 是否存在
 if [ ! -f "package.json" ]; then
     echo -e "${RED}错误: 找不到 package.json 文件${NC}"
+    cd "$ORIGINAL_DIR"
     exit 1
 fi
 
 # 检查 node_modules 是否存在
 if [ ! -d "node_modules" ]; then
     echo -e "${YELLOW}未检测到 node_modules，正在安装依赖...${NC}"
-    bun install || npm install
+    bun install || npm install || {
+        echo -e "${RED}依赖安装失败${NC}"
+        cd "$ORIGINAL_DIR"
+        exit 1
+    }
 fi
 
 # 构建前端
 echo -e "${YELLOW}[2/3] 构建前端应用...${NC}"
-bun run build || npm run build
+bun run build || npm run build || {
+    echo -e "${RED}前端构建失败${NC}"
+    cd "$ORIGINAL_DIR"
+    exit 1
+}
 
 # 检查构建产物
 if [ ! -d "dist" ]; then
     echo -e "${RED}错误: 构建失败，dist 目录不存在${NC}"
+    cd "$ORIGINAL_DIR"
     exit 1
 fi
 
@@ -73,9 +87,23 @@ else
 fi
 
 # 复制构建产物
-cp -r dist/* "$STATIC_DIR/"
+echo -e "${YELLOW}正在复制文件...${NC}"
+# 使用 find 和 cp 来复制，避免通配符问题
+find dist -type f -exec cp {} "$STATIC_DIR/" \;
+find dist -type d -exec cp -r {} "$STATIC_DIR/" \; 2>/dev/null || true
 
-echo -e "${GREEN}静态文件复制完成！${NC}"
+# 验证复制结果
+if [ -f "$STATIC_DIR/index.html" ]; then
+    echo -e "${GREEN}静态文件复制完成！${NC}"
+else
+    echo -e "${RED}错误: 静态文件复制失败${NC}"
+    cd "$ORIGINAL_DIR"
+    exit 1
+fi
+
+# 返回原始目录
+cd "$ORIGINAL_DIR"
+
 echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}构建成功完成！${NC}"
