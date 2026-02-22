@@ -251,12 +251,6 @@ const supportedLanguages = ref([])
 const languageFlags = {
   'zh': '🇨🇳',
   'en': '🇬🇧',
-  'ja': '🇯🇵',
-  'ko': '🇰🇷',
-  'fr': '🇫🇷',
-  'de': '🇩🇪',
-  'es': '🇪🇸',
-  'zh_hant': '🇹🇼',
 }
 
 // 可用的语言列表（包括原文和已翻译的语言）
