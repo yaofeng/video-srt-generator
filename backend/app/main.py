@@ -36,7 +36,7 @@ app.add_middleware(
 )
 
 # 注册路由（必须在静态文件mount之前）
-from .api import tasks, upload, config
+from .api import tasks, upload, config, translation
 
 @app.get("/health")
 async def health_check():
@@ -45,6 +45,7 @@ async def health_check():
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
+app.include_router(translation.router, prefix="/api", tags=["translation"])
 
 # 静态文件服务（生产环境）
 static_dir = Path(__file__).parent.parent / "static"
