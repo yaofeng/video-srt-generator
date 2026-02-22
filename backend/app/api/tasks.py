@@ -436,15 +436,3 @@ async def retry_task(
     asyncio.create_task(run_task_with_db())
 
     return {"message": "任务已重新开始", "task_id": task_id}
-
-    # 重置任务状态
-    task.status = "pending"
-    task.error_message = None
-    task.progress = 0
-    task.current_step = None
-    task.started_at = None
-    task.completed_at = None
-    db.commit()
-
-    # 重新启动任务
-    return await start_task(task_id, db)
