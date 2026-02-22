@@ -20,21 +20,23 @@
         </button>
       </div>
 
-      <!-- 视频播放器 -->
-      <div class="video-section">
-        <video
-          ref="videoPlayer"
-          :src="videoUrl"
-          @timeupdate="handleTimeUpdate"
-          controls
-          class="video-player"
-        >
-          您的浏览器不支持视频播放
-        </video>
-      </div>
+      <!-- 主内容区域：左右布局 -->
+      <div class="main-content">
+        <!-- 视频播放器 -->
+        <div class="video-section">
+          <video
+            ref="videoPlayer"
+            :src="videoUrl"
+            @timeupdate="handleTimeUpdate"
+            controls
+            class="video-player"
+          >
+            您的浏览器不支持视频播放
+          </video>
+        </div>
 
-      <!-- 字幕列表 -->
-      <div class="subtitles-section">
+        <!-- 字幕列表 -->
+        <div class="subtitles-section">
         <!-- 工具栏 -->
         <div class="toolbar">
           <div class="search-box">
@@ -101,6 +103,7 @@
             </svg>
             <p>没有找到匹配的字幕</p>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -296,7 +299,7 @@ onMounted(() => {
 }
 
 .container {
-  max-width: 1400px;
+  max-width: 1800px;
   margin: 0 auto;
 }
 
@@ -352,8 +355,17 @@ onMounted(() => {
   box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
 }
 
+/* 主内容区域：左右布局 */
+.main-content {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
 .video-section {
-  margin-bottom: 2rem;
+  flex: 0 0 60%;
+  position: sticky;
+  top: 2rem;
 }
 
 .video-player {
@@ -364,11 +376,17 @@ onMounted(() => {
 }
 
 .subtitles-section {
+  flex: 1;
   background: rgba(15, 23, 42, 0.8);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 1rem;
   overflow: hidden;
+  position: sticky;
+  top: 2rem;
+  max-height: calc(100vh - 4rem);
+  display: flex;
+  flex-direction: column;
 }
 
 .toolbar {
@@ -488,9 +506,10 @@ onMounted(() => {
 }
 
 .subtitles-list {
-  max-height: 600px;
+  flex: 1;
   overflow-y: auto;
   padding: 1rem;
+  min-height: 0;
 }
 
 .subtitles-list::-webkit-scrollbar {
@@ -586,6 +605,27 @@ onMounted(() => {
 }
 
 /* 响应式设计 */
+@media (max-width: 1280px) {
+  .main-content {
+    flex-direction: column;
+  }
+
+  .video-section,
+  .subtitles-section {
+    flex: none;
+    position: static;
+    width: 100%;
+  }
+
+  .subtitles-section {
+    max-height: 600px;
+  }
+
+  .subtitles-list {
+    max-height: 600px;
+  }
+}
+
 @media (max-width: 1024px) {
   .header {
     flex-direction: column;
@@ -627,6 +667,10 @@ onMounted(() => {
   .download-button {
     padding: 0.625rem 1rem;
     font-size: 0.813rem;
+  }
+
+  .subtitles-section {
+    max-height: 400px;
   }
 
   .subtitles-list {
