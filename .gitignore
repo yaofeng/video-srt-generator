@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node
+node_modules/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 环境变量
+.env
+.env.local
+
+# 后端生成的文件
+backend/uploads/
+backend/outputs/
+backend/logs/
+*.db
+*.db-journal
+
+# 前端构建
+frontend/dist/
