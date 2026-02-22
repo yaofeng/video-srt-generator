@@ -134,7 +134,14 @@ async def detect_speech_activity(
                     logger.info(f"使用 value 格式解析，数量: {len(value) if value else 0}")
                     if value:
                         for segment in value:
-                            if isinstance(segment, dict):
+                            # VAD 返回的可能是列表格式 [start_ms, end_ms]
+                            if isinstance(segment, list) and len(segment) == 2:
+                                start_ms = segment[0]
+                                end_ms = segment[1]
+                                segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                                logger.info(f"  片段: {start_ms}ms - {end_ms}ms")
+                            # 或者是字典格式 {'start': ms, 'end': ms}
+                            elif isinstance(segment, dict):
                                 start_ms = segment.get('start', 0)
                                 end_ms = segment.get('end', 0)
                                 segments.append((start_ms / 1000.0, end_ms / 1000.0))
@@ -144,7 +151,14 @@ async def detect_speech_activity(
                 elif isinstance(result, list):
                     logger.info(f"使用列表格式解析，数量: {len(result)}")
                     for segment in result:
-                        if isinstance(segment, dict):
+                        # VAD 返回的可能是列表格式 [start_ms, end_ms]
+                        if isinstance(segment, list) and len(segment) == 2:
+                            start_ms = segment[0]
+                            end_ms = segment[1]
+                            segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                            logger.info(f"  片段: {start_ms}ms - {end_ms}ms")
+                        # 或者是字典格式 {'start': ms, 'end': ms}
+                        elif isinstance(segment, dict):
                             start_ms = segment.get('start', 0)
                             end_ms = segment.get('end', 0)
                             segments.append((start_ms / 1000.0, end_ms / 1000.0))
