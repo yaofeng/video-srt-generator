@@ -70,19 +70,44 @@
         <div class="modal-content" @click.stop>
           <h2>选择翻译语言</h2>
           <div class="language-grid">
-            <button
-              v-for="lang in supportedLanguages"
-              :key="lang.code"
-              @click="startTranslation(lang.code)"
-              :class="['language-option', { disabled: isLanguageTranslated(lang.code) }]"
-              :disabled="isLanguageTranslated(lang.code)"
-            >
-              <span class="flag">{{ languageFlags[lang.code] || '🌐' }}</span>
-              <span class="name">{{ lang.name }}</span>
-              <span v-if="isLanguageTranslated(lang.code)" class="status">✓</span>
-            </button>
+            <div v-for="lang in supportedLanguages" :key="lang.code" class="language-item">
+              <button
+                @click="startTranslation(lang.code)"
+                class="language-option"
+                :class="{ disabled: isLanguageTranslated(lang.code) && !retranslateLanguage }"
+                :disabled="isLanguageTranslated(lang.code) && retranslateLanguage !== lang.code"
+              >
+                <span class="flag">{{ languageFlags[lang.code] || '🌐' }}</span>
+                <span class="name">{{ lang.name }}</span>
+                <span v-if="isLanguageTranslated(lang.code)" class="status">✓</span>
+              </button>
+              <button
+                v-if="isLanguageTranslated(lang.code)"
+                @click="retranslateLanguage = lang.code; showTranslationModal = false"
+                class="retranslate-btn"
+                title="重新翻译"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 3L5 6h2v4h2V6h2L8 3zm0 10l3-3h-2V6h-2v4H5l3 3z"/>
+                </svg>
+                重新翻译
+              </button>
+            </div>
           </div>
-          <button @click="showTranslationModal = false" class="modal-close">取消</button>
+          <button @click="showTranslationModal = false; retranslateLanguage = null" class="modal-close">取消</button>
+        </div>
+      </div>
+
+      <!-- 重新翻译确认模态框 -->
+      <div v-if="retranslateLanguage" class="modal-overlay" @click="retranslateLanguage = null">
+        <div class="modal-content small" @click.stop>
+          <h2>重新翻译</h2>
+          <p>确定要重新翻译成{{ getLanguageName(retranslateLanguage) }}吗？</p>
+          <p class="hint">这将覆盖现有的翻译结果。</p>
+          <div class="modal-actions">
+            <button @click="confirmRetranslate" class="confirm-btn">确定重新翻译</button>
+            <button @click="retranslateLanguage = null" class="cancel-btn">取消</button>
+          </div>
         </div>
       </div>
 
@@ -217,6 +242,7 @@ const showTranslationModal = ref(false)
 const translationInProgress = ref(false)
 const translationProgress = ref(0)
 const translationStep = ref('')
+const retranslateLanguage = ref(null)  // 重新翻译的目标语言
 
 // 支持的语言（从配置 API 动态获取）
 const supportedLanguages = ref([])
@@ -472,16 +498,17 @@ const loadSubtitles = async (lang = null) => {
 }
 
 // 开始翻译
-const startTranslation = async (targetLanguage) => {
+const startTranslation = async (targetLanguage, force = false) => {
   showTranslationModal.value = false
   translationInProgress.value = true
   translationProgress.value = 0
-  translationStep.value = '正在创建翻译任务...'
+  translationStep.value = force ? '正在重新翻译...' : '正在创建翻译任务...'
 
   try {
     // 创建翻译任务
     const response = await axios.post(`${API_BASE}/api/tasks/${taskId}/translate`, {
-      target_language: targetLanguage
+      target_language: targetLanguage,
+      force: force
     })
 
     const translationTaskId = response.data.translation_task_id
@@ -493,6 +520,13 @@ const startTranslation = async (targetLanguage) => {
     alert(error.response?.data?.detail || '翻译失败，请重试')
     translationInProgress.value = false
   }
+}
+
+// 确认重新翻译
+const confirmRetranslate = () => {
+  const targetLanguage = retranslateLanguage.value
+  retranslateLanguage.value = null
+  startTranslation(targetLanguage, true)  // 传递 force=true
 }
 
 // 轮询翻译状态
@@ -1147,10 +1181,16 @@ onUnmounted(() => {
 }
 
 .language-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
   margin-bottom: 1.5rem;
+}
+
+.language-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
 }
 
 .language-option {
@@ -1164,6 +1204,7 @@ onUnmounted(() => {
   border-radius: 0.5rem;
   cursor: pointer;
   transition: all 0.3s ease;
+  flex: 1;
 }
 
 .language-option:hover:not(.disabled) {
@@ -1189,6 +1230,88 @@ onUnmounted(() => {
 .language-option .status {
   font-size: 1rem;
   color: var(--brand-cyan);
+}
+
+.retranslate-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.5rem;
+  color: var(--brand-red);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.retranslate-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--brand-red);
+  transform: translateY(-1px);
+}
+
+.modal-content.small {
+  max-width: 400px;
+}
+
+.modal-content.small h2 {
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.modal-content.small p {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.modal-content.small .hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.confirm-btn {
+  padding: 0.625rem 1.25rem;
+  background: linear-gradient(135deg, var(--brand-red), #dc2626);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.confirm-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.cancel-btn {
+  padding: 0.625rem 1.25rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .modal-close {

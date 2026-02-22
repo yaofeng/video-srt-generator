@@ -32,6 +32,7 @@ router = APIRouter()
 class CreateTranslationRequest(BaseModel):
     """创建翻译任务请求"""
     target_language: str = Field(..., description="目标语言代码（en, ja, ko 等）")
+    force: bool = Field(False, description="是否强制重新翻译（覆盖现有翻译）")
 
 
 class TranslationResponse(BaseModel):
@@ -81,10 +82,36 @@ async def create_translation_task(
     # 3. 检查是否已存在相同语言的翻译任务
     existing = get_translation_task(db, task_id, request.target_language)
     if existing and existing.status != 'failed':
-        raise HTTPException(
-            400,
-            f"已存在 {get_language_name(request.target_language)} 语言的翻译任务（状态: {existing.status}）"
-        )
+        if not request.force:
+            raise HTTPException(
+                409,
+                f"已存在 {get_language_name(request.target_language)} 语言的翻译任务（状态: {existing.status}）。如需重新翻译，请设置 force=true"
+            )
+        # 如果强制重新翻译，删除旧的翻译任务
+        else:
+            # 清除数据库中已翻译的内容
+            field_name = f'translated_text_{request.target_language}'
+            db.execute(
+                select(Subtitle).where(Subtitle.task_id == task_id)
+            )
+            subtitles = db.execute(
+                select(Subtitle).where(Subtitle.task_id == task_id)
+            ).scalars().all()
+            for sub in subtitles:
+                setattr(sub, field_name, None)
+                # 更新 translation_languages
+                if sub.translation_languages:
+                    try:
+                        languages = json.loads(sub.translation_languages)
+                        if request.target_language in languages:
+                            languages.remove(request.target_language)
+                            sub.translation_languages = json.dumps(languages)
+                    except:
+                        pass
+            db.commit()
+            # 删除旧的翻译任务
+            db.delete(existing)
+            db.commit()
 
     # 4. 创建翻译任务
     translation_task_id = str(uuid.uuid4())
