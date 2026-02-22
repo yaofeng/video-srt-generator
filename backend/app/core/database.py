@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from pathlib import Path
 from typing import Generator
@@ -16,7 +16,16 @@ engine = create_engine(
     DATABASE_URL,
     echo=settings.DEBUG,
     future=True,
+    connect_args={"check_same_thread": False},
 )
+
+# 为每个新连接启用外键约束
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_conn, connection_record):
+    """为每个新连接启用外键约束"""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.close()
 
 # 创建会话工厂
 SessionLocal = sessionmaker(
