@@ -65,6 +65,17 @@
           </p>
         </div>
 
+        <!-- 自动翻译选项 -->
+        <div class="upload-options">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="autoTranslate" class="checkbox" />
+            <span class="checkbox-text">
+              自动翻译为 <span class="language-badge">{{ defaultTargetLanguageName }}</span>
+            </span>
+          </label>
+          <p class="option-hint">字幕生成完成后自动翻译，可在配置页面更改目标语言</p>
+        </div>
+
         <!-- 上传进度 -->
         <div v-if="isUploading" class="upload-progress">
           <div class="progress-bar">
@@ -107,7 +118,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 
@@ -118,7 +129,40 @@ const isUploading = ref(false)
 const uploadProgress = ref(0)
 const errorMessage = ref('')
 
+// 翻译相关
+const autoTranslate = ref(false)
+const defaultTargetLanguage = ref('en')
+const defaultTargetLanguageName = ref('英语')
+
+const languageNames = {
+  'en': '英语',
+  'ja': '日语',
+  'ko': '韩语',
+  'fr': '法语',
+  'de': '德语',
+  'es': '西班牙语',
+  'zh_hant': '繁体中文'
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+
+// 加载配置
+const loadConfig = async () => {
+  try {
+    const response = await fetch(`${API_BASE}/api/config/`)
+    if (response.ok) {
+      const config = await response.json()
+      defaultTargetLanguage.value = config.default_target_language || 'en'
+      defaultTargetLanguageName.value = languageNames[defaultTargetLanguage.value] || '英语'
+    }
+  } catch (error) {
+    console.error('加载配置失败:', error)
+  }
+}
+
+onMounted(() => {
+  loadConfig()
+})
 
 // 处理拖拽进入
 const handleDragEnter = (e) => {
@@ -178,6 +222,7 @@ const handleFile = async (file) => {
 
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('auto_translate', autoTranslate.value ? 'true' : 'false')
 
     const response = await axios.post(`${API_BASE}/api/tasks/upload`, formData, {
       headers: {
@@ -368,6 +413,51 @@ const goToTasks = () => {
 
 .upload-progress {
   margin-top: 2rem;
+}
+
+.upload-options {
+  margin-top: 1.5rem;
+  padding: 1rem 1.5rem;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 0.75rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  accent: var(--brand-blue);
+  cursor: pointer;
+}
+
+.checkbox-text {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.language-badge {
+  padding: 0.25rem 0.75rem;
+  background: linear-gradient(135deg, var(--brand-blue), var(--brand-cyan));
+  color: white;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.option-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0.5rem 0 0 2.5rem;
 }
 
 .progress-bar {
