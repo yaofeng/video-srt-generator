@@ -132,6 +132,7 @@ async def transcribe_audio(
             normalized_language = language_map.get(language, language)
 
             # 使用 Qwen3-ASR 进行识别，带时间戳
+            logger.info(f"开始 ASR 识别: {audio_path}")
             results = model.transcribe(
                 audio=str(audio_path),
                 language=normalized_language,
@@ -139,6 +140,7 @@ async def transcribe_audio(
             )
 
             if not results or len(results) == 0:
+                logger.warning(f"ASR 识别未返回结果: {audio_path}")
                 return {
                     'text': '',
                     'segments': []
@@ -149,12 +151,16 @@ async def transcribe_audio(
 
             # 提取文本和时间戳
             text = result.text
+            logger.info(f"ASR 识别完成，文本长度: {len(text)} 字符")
 
             # Qwen3-ForcedAligner 返回的时间戳是 token/字符级别的
             # 注意：time_stamps 不包含标点符号，但 result.text 包含
-            # 需要将两者结合来生成带标点的句子级字幕
+            # 策略：基于 result.text 按标点切分成句子，然后从 time_stamps 中找到对应的时间戳
             segments = []
             if result.time_stamps is not None:
+                char_count = len(result.time_stamps)
+                logger.info(f"字符级别时间戳数量: {char_count}")
+
                 # 先转换字符级别时间戳
                 char_segments = []
                 for item in result.time_stamps:
@@ -164,12 +170,10 @@ async def transcribe_audio(
                         'text': str(item.text)
                     })
 
-                # 基于时间间隔和时长切分（time_stamps无标点）
-                segments = _merge_char_segments_to_sentences(char_segments)
-
-                # 为每个segment添加result.text中对应的标点
-                # 使用字符位置对齐的方式
-                segments = _add_punctuation_from_text(segments, text)
+                # 基于result.text按标点切分句子，并从time_stamps中找到对应的时间戳
+                logger.info("开始按标点切分成句子级别字幕...")
+                segments = _merge_char_segments_to_sentences_with_text(char_segments, text)
+                logger.info(f"切分完成，生成 {len(segments)} 条句子级别字幕")
 
             return {
                 'text': text,
@@ -313,23 +317,26 @@ def _merge_char_segments_to_sentences(
     return sentences
 
 
-def _add_punctuation_from_text(segments: List[Dict], full_text: str) -> List[Dict]:
+def _merge_char_segments_to_sentences_with_text(
+    char_segments: List[Dict],
+    full_text: str
+) -> List[Dict]:
     """
-    为segments添加full_text中对应的标点符号
+    基于full_text按标点切分句子，并从time_stamps中找到对应的时间戳
 
-    新策略：
-    1. 基于full_text中的标点符号切分成句子
-    2. 为每个句子分配对应的时间范围（基于segments的时间信息）
+    策略：
+    1. 按full_text中的标点符号切分成句子
+    2. 在char_segments中找到每个句子的开始和结束时间
 
     Args:
-        segments: 不带标点的句子列表（仅用于时间参考）
-        full_text: 包含标点的完整文本
+        char_segments: 字符级别的时间戳列表（来自time_stamps）
+        full_text: 包含标点的完整文本（来自result.text）
 
     Returns:
-        List[Dict]: 带标点的句子列表
+        List[Dict]: 带标点和时间戳的句子列表
     """
-    if not segments or not full_text:
-        return segments
+    if not char_segments or not full_text:
+        return []
 
     # 移除full_text中的空格
     clean_text = full_text.replace(' ', '').replace('\n', '').replace('\t', '')
@@ -337,53 +344,75 @@ def _add_punctuation_from_text(segments: List[Dict], full_text: str) -> List[Dic
     # 按标点符号切分clean_text
     sentence_end_punct = ['。', '！', '？', '.', '!', '?']
 
-    # 切分成句子
-    sentences = []
+    # 切分成句子，记录每个句子在clean_text中的字符位置
+    sentences_with_pos = []
     current = []
+    start_pos = 0
 
-    for char in clean_text:
+    for i, char in enumerate(clean_text):
         current.append(char)
         if char in sentence_end_punct:
-            sentences.append(''.join(current))
+            sentence_text = ''.join(current)
+            end_pos = i + 1
+            sentences_with_pos.append({
+                'text': sentence_text,
+                'start_pos': start_pos,
+                'end_pos': end_pos
+            })
             current = []
+            start_pos = i + 1
 
-    # 处理剩余部分（如果没有以句末标点结尾）
+    # 处理剩余部分
     if current:
-        text = ''.join(current)
-        # 如果太短，合并到上一句
-        if sentences and len(text) < 5:
-            sentences[-1] += text
+        sentence_text = ''.join(current)
+        if sentences_with_pos and len(sentence_text) < 5:
+            # 合并到上一句
+            sentences_with_pos[-1]['text'] += sentence_text
+            sentences_with_pos[-1]['end_pos'] = len(clean_text)
         else:
-            sentences.append(text)
+            sentences_with_pos.append({
+                'text': sentence_text,
+                'start_pos': start_pos,
+                'end_pos': len(clean_text)
+            })
 
-    if not sentences:
-        return segments
+    if not sentences_with_pos:
+        # 没有标点，返回原始segments
+        return char_segments
 
-    # 为每个句子分配时间范围
-    # 策略：按字符数比例分配时间
-    total_duration = segments[-1]['end'] - segments[0]['start']
-    total_chars = sum(len(s) for s in sentences)
+    # 为每个句子从char_segments中找到对应的时间戳
+    # 策略：按字符比例匹配
+    result = []
 
-    result_segments = []
-    current_start = segments[0]['start']
+    for sent in sentences_with_pos:
+        sent_text = sent['text'].replace(' ', '')
+        start_pos = sent['start_pos']
+        end_pos = sent['end_pos']
 
-    for i, sentence in enumerate(sentences):
-        # 计算当前句子应该占用的时长
-        char_ratio = len(sentence) / total_chars if total_chars > 0 else (1 / len(sentences))
-        duration = total_duration * char_ratio
+        # 计算这个句子对应char_segments的哪个范围
+        total_chars = len(clean_text)
+        start_ratio = start_pos / total_chars
+        end_ratio = end_pos / total_chars
 
-        # 确保时长合理（最小2秒，最大8秒）
-        duration = max(2.0, min(duration, 8.0))
+        # 在char_segments中找到对应的时间
+        total_segments = len(char_segments)
+        start_idx = int(start_ratio * total_segments)
+        end_idx = int(end_ratio * total_segments)
 
-        result_segments.append({
-            'start': current_start,
-            'end': current_start + duration,
-            'text': sentence
+        # 确保索引有效
+        start_idx = max(0, min(start_idx, len(char_segments) - 1))
+        end_idx = max(start_idx + 1, min(end_idx, len(char_segments)))
+
+        start_time = char_segments[start_idx]['start']
+        end_time = char_segments[end_idx - 1]['end']
+
+        result.append({
+            'start': start_time,
+            'end': end_time,
+            'text': sent_text
         })
 
-        current_start += duration
-
-    return result_segments
+    return result
 
 
 async def batch_transcribe(

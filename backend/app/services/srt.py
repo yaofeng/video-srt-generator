@@ -25,14 +25,9 @@ async def generate_srt(
         merge_threshold: 短字幕合并阈值（秒）
     """
     try:
-        # 转换为句子级别的时间戳
-        subtitles = _convert_to_sentence_level(segments, min_duration, max_duration)
-
-        # 合并短字幕
-        subtitles = merge_short_subtitles(subtitles, merge_threshold)
-
-        # 分割过长的字幕
-        subtitles = _split_long_subtitles(subtitles, max_duration)
+        # segments 已经是句子级别的字幕（来自 asr.py 的 merge_char_segments_to_sentences_with_text）
+        # 只合并短字幕，不进行任何切分（保持句子完整性）
+        subtitles = merge_short_subtitles(segments, merge_threshold)
 
         # 生成 SRT 内容
         srt_content = _format_srt(subtitles)
@@ -149,6 +144,76 @@ def _split_text_by_punctuation(text: str) -> List[str]:
         result.append(current)
 
     return [r for r in result if r.strip()]
+
+
+def _split_long_subtitles_by_punctuation(
+    subtitles: List[Dict],
+    max_duration: float
+) -> List[Dict]:
+    """
+    智能分割过长的字幕，按标点符号分割而不是破坏句子完整性
+
+    对于超过 max_duration 的字幕，按逗号、分号等停顿标点分割
+
+    Args:
+        subtitles: 字幕列表
+        max_duration: 最大时长（秒）
+
+    Returns:
+        List[Dict]: 分割后的字幕列表
+    """
+    result = []
+
+    for sub in subtitles:
+        duration = sub['end'] - sub['start']
+
+        if duration <= max_duration:
+            result.append(sub)
+            continue
+
+        # 需要分割的长字幕
+        text = sub['text']
+
+        # 按停顿标点（逗号、分号等）分割，不包括句末标点（因为输入已经是按句末标点分割的）
+        pause_punct_pattern = r'([,，;；、])'
+        parts = re.split(pause_punct_pattern, text)
+
+        # 重组，保留标点
+        text_parts = []
+        current = ""
+        for part in parts:
+            if re.match(pause_punct_pattern, part):
+                current += part
+                if current:
+                    text_parts.append(current)
+                    current = ""
+            else:
+                current += part
+
+        if current:
+            text_parts.append(current)
+
+        # 如果无法分割，保留原样
+        if len(text_parts) <= 1:
+            result.append(sub)
+            continue
+
+        # 按字符数比例分配时间
+        total_chars = sum(len(part) for part in text_parts)
+        current_start = sub['start']
+
+        for part in text_parts:
+            if not part.strip():
+                continue
+            part_duration = (len(part) / total_chars) * duration
+            result.append({
+                'start': current_start,
+                'end': current_start + part_duration,
+                'text': part.strip()
+            })
+            current_start += part_duration
+
+    return result
 
 
 def merge_short_subtitles(

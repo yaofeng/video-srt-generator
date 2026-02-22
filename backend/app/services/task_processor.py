@@ -67,10 +67,13 @@ async def process_task(
             'progress': 0,
             'step': '开始处理...'
         }))
+        _log(db, task_id, 'info', '任务开始处理')
 
         # 1. 提取音频
-        _log(db, task_id, 'info', '开始提取音频...')
+        _log(db, task_id, 'info', f'开始从视频提取音频: {task.filename}')
+        _log(db, task_id, 'info', f'视频文件路径: {task.file_path}')
         audio_path = settings.OUTPUT_DIR / f"{task_id}_audio.wav"
+        _log(db, task_id, 'info', f'音频输出路径: {audio_path}')
         await extract_audio(Path(task.file_path), audio_path)
         _log(db, task_id, 'info', '音频提取完成')
 
@@ -78,9 +81,12 @@ async def process_task(
         duration = await get_video_duration(Path(task.file_path))
         task.duration_seconds = int(duration)
         db.commit()
+        _log(db, task_id, 'info', f'视频时长: {duration:.2f} 秒')
 
         # 3. VAD 切分
-        _log(db, task_id, 'info', '开始语音活动检测...')
+        _log(db, task_id, 'info', '开始语音活动检测 (VAD)...')
+        _log(db, task_id, 'info', f'最小片段时长: {settings.SEGMENT_MIN_DURATION}秒')
+        _log(db, task_id, 'info', f'最大片段时长: {settings.SEGMENT_MAX_DURATION}秒')
         await progress_queue.put(ProgressEvent('progress', {
             'progress': 10,
             'step': '正在进行语音活动检测...'
@@ -94,9 +100,10 @@ async def process_task(
             max_duration=settings.SEGMENT_MAX_DURATION
         )
 
-        _log(db, task_id, 'info', f'检测到 {len(segments)} 个音频片段')
+        _log(db, task_id, 'info', f'VAD 检测完成，共检测到 {len(segments)} 个音频片段')
 
         # 4. 保存片段信息到数据库
+        _log(db, task_id, 'info', '保存片段信息到数据库...')
         for seg in segments:
             segment = Segment(
                 task_id=task_id,
@@ -106,18 +113,22 @@ async def process_task(
                 audio_path=seg['audio_path']
             )
             db.add(segment)
+            _log(db, task_id, 'info', f"  片段 {seg['index']}: {seg['start_time']:.2f}s - {seg['end_time']:.2f}s (时长: {seg['end_time']-seg['start_time']:.2f}s)")
         db.commit()
 
         # 5. ASR 识别
-        _log(db, task_id, 'info', '开始语音识别...')
+        _log(db, task_id, 'info', '开始语音识别 (ASR)...')
+        _log(db, task_id, 'info', f'使用模型: Qwen3-ASR-1.7B + ForcedAligner')
+        _log(db, task_id, 'info', f'最大重试次数: {settings.MAX_RETRY_ATTEMPTS}')
         all_segments = []
         failed_segments = []
 
         for i, seg_info in enumerate(segments):
             await progress_queue.put(ProgressEvent('progress', {
                 'progress': 20 + int(60 * i / len(segments)),
-                'step': f'正在识别 ({i+1}/{len(segments)})...'
+                'step': f'正在识别片段 {i+1}/{len(segments)}...'
             }))
+            _log(db, task_id, 'info', f'开始识别片段 {i+1}/{len(segments)} (索引: {seg_info["index"]})')
 
             # 更新片段状态
             result = db.execute(
@@ -135,8 +146,11 @@ async def process_task(
             # 重试逻辑
             for attempt in range(settings.MAX_RETRY_ATTEMPTS):
                 try:
+                    _log(db, task_id, 'info', f'  片段 {i+1}: 进行第 {attempt+1} 次识别尝试...')
                     asr_result = await transcribe_audio(Path(seg_info['audio_path']))
+                    segments_count = len(asr_result.get('segments', []))
                     all_segments.extend(asr_result.get('segments', []))
+                    _log(db, task_id, 'info', f'  片段 {i+1}: 识别成功，生成 {segments_count} 条字幕')
 
                     if segment:
                         segment.status = 'completed'
@@ -157,11 +171,14 @@ async def process_task(
                             db.commit()
                         failed_segments.append(i + 1)
                     else:
-                        _log(db, task_id, 'warning', f'片段 {i+1} 重试 ({attempt+1}/{settings.MAX_RETRY_ATTEMPTS})')
+                        wait_time = settings.RETRY_BASE_DELAY * (2 ** attempt)
+                        _log(db, task_id, 'warning', f'片段 {i+1} 识别失败，{wait_time}秒后重试 ({attempt+1}/{settings.MAX_RETRY_ATTEMPTS})')
                         if segment:
                             segment.retry_count = attempt + 1
                             db.commit()
-                        await asyncio.sleep(settings.RETRY_BASE_DELAY * (2 ** attempt))
+                        await asyncio.sleep(wait_time)
+
+        _log(db, task_id, 'info', f'ASR 识别完成，共生成 {len(all_segments)} 条原始字幕')
 
         if failed_segments:
             _log(db, task_id, 'warning', f'共有 {len(failed_segments)} 个片段识别失败: {failed_segments}')
@@ -169,12 +186,14 @@ async def process_task(
         # 6. 生成 SRT
         await progress_queue.put(ProgressEvent('progress', {
             'progress': 85,
-            'step': '正在生成字幕...'
+            'step': '正在生成字幕文件...'
         }))
 
-        _log(db, task_id, 'info', '开始生成 SRT 文件...')
+        _log(db, task_id, 'info', '开始生成 SRT 字幕文件...')
         srt_filename = f"{Path(task.filename).stem}_字幕.srt"
         srt_path = settings.OUTPUT_DIR / srt_filename
+        _log(db, task_id, 'info', f'SRT 文件路径: {srt_path}')
+        _log(db, task_id, 'info', f'字幕参数: 最小时长={settings.SUBTITLE_MIN_DURATION}s, 最大时长={settings.SUBTITLE_MAX_DURATION}s, 合并阈值={settings.SUBTITLE_MERGE_THRESHOLD}s')
 
         await generate_srt(
             all_segments,
@@ -183,11 +202,15 @@ async def process_task(
             max_duration=settings.SUBTITLE_MAX_DURATION,
             merge_threshold=settings.SUBTITLE_MERGE_THRESHOLD
         )
+        _log(db, task_id, 'info', f'SRT 文件生成完成')
 
         # 7. 保存字幕到数据库（从生成的SRT文件中读取，确保一致性）
         from .srt import parse_srt
+        _log(db, task_id, 'info', '解析 SRT 文件并保存到数据库...')
         srt_subtitles = parse_srt(srt_path)
+        _log(db, task_id, 'info', f'从 SRT 文件解析出 {len(srt_subtitles)} 条字幕')
         await _save_subtitles(db, task_id, srt_subtitles)
+        _log(db, task_id, 'info', f'字幕已保存到数据库')
 
         # 8. 更新任务状态
         task.status = 'completed'
@@ -199,15 +222,16 @@ async def process_task(
         await progress_queue.put(ProgressEvent('complete', {
             'task_id': task_id,
             'srt_path': srt_filename,
-            'subtitle_count': len(all_segments)
+            'subtitle_count': len(srt_subtitles)
         }))
 
-        _log(db, task_id, 'info', '任务完成')
+        _log(db, task_id, 'info', f'任务完成！共生成 {len(srt_subtitles)} 条字幕')
+        _log(db, task_id, 'info', f'SRT 文件: {srt_filename}')
 
         return {
             'status': 'completed',
             'srt_path': str(srt_path),
-            'subtitle_count': len(all_segments)
+            'subtitle_count': len(srt_subtitles)
         }
 
     except Exception as e:
