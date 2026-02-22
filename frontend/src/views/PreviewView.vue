@@ -294,26 +294,35 @@ onMounted(() => {
 
 <style scoped>
 .preview-view {
-  min-height: 100vh;
-  padding: 2rem;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 2rem;
+  overflow: hidden;
 }
 
 .container {
   max-width: 1800px;
   margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   gap: 1rem;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .title {
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 800;
   color: var(--text-primary);
   margin: 0;
@@ -326,9 +335,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
+  padding: 0.625rem 1.25rem;
   border-radius: 0.5rem;
-  font-size: 0.875rem;
+  font-size: 0.813rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -355,21 +364,25 @@ onMounted(() => {
   box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
 }
 
-/* 主内容区域：左右布局 */
+/* 主内容区域：左右布局，占满剩余空间 */
 .main-content {
   display: flex;
-  gap: 2rem;
-  align-items: flex-start;
+  gap: 1.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .video-section {
   flex: 0 0 60%;
-  position: sticky;
-  top: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .video-player {
   width: 100%;
+  max-height: 100%;
   border-radius: 1rem;
   background: #000;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
@@ -382,25 +395,24 @@ onMounted(() => {
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 1rem;
   overflow: hidden;
-  position: sticky;
-  top: 2rem;
-  max-height: calc(100vh - 4rem);
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .toolbar {
-  padding: 1.5rem;
+  padding: 1rem 1.25rem;
   border-bottom: 1px solid rgba(59, 130, 246, 0.1);
   display: flex;
-  gap: 1.5rem;
+  gap: 1rem;
   flex-wrap: wrap;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .search-box {
   flex: 1;
-  min-width: 250px;
+  min-width: 200px;
   position: relative;
   display: flex;
   align-items: center;
@@ -606,15 +618,30 @@ onMounted(() => {
 
 /* 响应式设计 */
 @media (max-width: 1280px) {
+  .preview-view {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+  }
+
+  .container {
+    height: auto;
+    overflow: visible;
+  }
+
   .main-content {
     flex-direction: column;
+    overflow: visible;
   }
 
   .video-section,
   .subtitles-section {
     flex: none;
-    position: static;
     width: 100%;
+  }
+
+  .video-section {
+    margin-bottom: 1.5rem;
   }
 
   .subtitles-section {
@@ -622,7 +649,7 @@ onMounted(() => {
   }
 
   .subtitles-list {
-    max-height: 600px;
+    max-height: none;
   }
 }
 
