@@ -1,8 +1,6 @@
 #!/bin/bash
 # 停止视频字幕生成服务的所有进程
 
-set -e
-
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -11,13 +9,13 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}===== 停止视频字幕生成服务 =====${NC}"
 
-# 项目根目录
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 项目根目录（脚本的父目录）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 # 1. 首先尝试正常停止后端服务（在 backend 目录）
 echo -e "\n${YELLOW}[1/3]${NC} 尝试正常停止后端服务..."
-cd "$PROJECT_DIR/backend"
 
 # 查找并保存 uvicorn 进程 PID
 UVICORN_PIDS=$(pgrep -f "uvicorn.*app.main" || true)
