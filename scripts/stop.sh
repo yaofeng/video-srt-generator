@@ -18,7 +18,8 @@ cd "$PROJECT_DIR"
 echo -e "\n${YELLOW}[1/3]${NC} 尝试正常停止后端服务..."
 
 # 查找并保存 uvicorn 进程 PID
-UVICORN_PIDS=$(pgrep -f "uvicorn.*app.main" || true)
+# 使用更精确的匹配，排除 pgrep 自己
+UVICORN_PIDS=$(ps aux | grep -E "(uvicorn.*app:app|python.*-m.*uvicorn)" | grep -v grep | grep -v pgrep | awk '{print $2}' || true)
 
 if [ -n "$UVICORN_PIDS" ]; then
     echo "发现运行中的 uvicorn 进程: $UVICORN_PIDS"
@@ -34,7 +35,8 @@ if [ -n "$UVICORN_PIDS" ]; then
     TIMEOUT=5
     ELAPSED=0
     while [ $ELAPSED -lt $TIMEOUT ]; do
-        if ! pgrep -f "uvicorn.*app.main" > /dev/null; then
+        CURRENT_PIDS=$(ps aux | grep -E "(uvicorn.*app:app|python.*-m.*uvicorn)" | grep -v grep | grep -v pgrep | awk '{print $2}' || true)
+        if [ -z "$CURRENT_PIDS" ]; then
             echo -e "${GREEN}后端服务已正常停止${NC}"
             break
         fi
@@ -43,7 +45,8 @@ if [ -n "$UVICORN_PIDS" ]; then
     done
 
     # 检查是否还在运行
-    if pgrep -f "uvicorn.*app.main" > /dev/null; then
+    CURRENT_PIDS=$(ps aux | grep -E "(uvicorn.*app:app|python.*-m.*uvicorn)" | grep -v grep | grep -v pgrep | awk '{print $2}' || true)
+    if [ -n "$CURRENT_PIDS" ]; then
         echo -e "${YELLOW}正常停止超时，使用强制方式...${NC}"
         FORCE_KILL=true
     else
@@ -59,12 +62,13 @@ if [ "$FORCE_KILL" = true ]; then
     echo -e "\n${RED}[2/3]${NC} 强制停止后端服务..."
 
     # 使用 pkill 强制终止
-    pkill -9 -f "uvicorn.*app.main" 2>/dev/null || true
+    pkill -9 -f "uvicorn.*app:app" 2>/dev/null || true
 
     # 再次检查
-    if pgrep -f "uvicorn.*app.main" > /dev/null; then
+    CURRENT_PIDS=$(ps aux | grep -E "(uvicorn.*app:app|python.*-m.*uvicorn)" | grep -v grep | grep -v pgrep | awk '{print $2}' || true)
+    if [ -n "$CURRENT_PIDS" ]; then
         echo -e "${RED}错误: 无法停止后端服务${NC}"
-        echo "请手动执行: pkill -9 -f 'uvicorn.*app.main'"
+        echo "请手动执行: pkill -9 -f 'uvicorn.*app:app'"
     else
         echo -e "${GREEN}后端服务已强制停止${NC}"
     fi
@@ -107,11 +111,16 @@ fi
 echo -e "\n${GREEN}===== 最终检查 =====${NC}"
 
 # 检查 Python 进程
-PYTHON_COUNT=$(pgrep -f "uvicorn.*app.main" 2>/dev/null | wc -l)
+PYTHON_PIDS=$(ps aux | grep -E "(uvicorn.*app:app|python.*-m.*uvicorn)" | grep -v grep | grep -v pgrep | awk '{print $2}' | grep -E "^[0-9]+$" || true)
+if [ -n "$PYTHON_PIDS" ]; then
+    PYTHON_COUNT=$(echo "$PYTHON_PIDS" | wc -l)
+else
+    PYTHON_COUNT=0
+fi
 if [ "$PYTHON_COUNT" -gt 0 ]; then
     echo -e "${RED}警告: 仍有 $PYTHON_COUNT 个 Python 后端进程在运行${NC}"
-    pgrep -f "uvicorn.*app.main" | while read -r pid; do
-        ps -p "$pid" -o pid,cmd --no-headers || true
+    echo "$PYTHON_PIDS" | while read -r pid; do
+        [ -n "$pid" ] && ps -p "$pid" -o pid,cmd --no-headers 2>/dev/null || true
     done
 else
     echo -e "${GREEN}后端服务: 已停止${NC}"
