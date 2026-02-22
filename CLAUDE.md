@@ -85,7 +85,10 @@ from funasr import AutoModel
 
 model = AutoModel(model="fsmn-vad", model_revision="v2.0.4")
 vad_result = model.generate(input=[waveform], batch_size_s=300)
-# 返回格式: [{'value': [{'start': ms, 'end': ms}, ...]}]
+# 实际返回格式: [{'value': [[start_ms, end_ms], ...]}]
+# 注意: value 是嵌套列表，每个元素是 [start_ms, end_ms]
+# 也可能支持字典格式: {'value': [{'start': ms, 'end': ms}, ...]}
+# 解析时需要同时处理两种格式
 ```
 
 #### Qwen3-ASR 使用方式
@@ -151,9 +154,53 @@ results = model.transcribe(
 ### 配置参数
 
 在 `backend/app/core/config.py` 中：
-- `SEGMENT_MIN_DURATION`: 180 秒（3 分钟）
-- `SEGMENT_MAX_DURATION`: 300 秒（5 分钟）
+- `SEGMENT_MIN_DURATION`: 60 秒（1 分钟）
+- `SEGMENT_MAX_DURATION`: 180 秒（3 分钟）
 - `SUBTITLE_MIN_DURATION`: 2.0 秒
 - `SUBTITLE_MAX_DURATION`: 8.0 秒
 - `SUBTITLE_MERGE_THRESHOLD`: 1.5 秒（合并短字幕阈值）
 - `MAX_RETRY_ATTEMPTS`: 3（ASR 识别失败重试次数）
+
+## 复杂算法验证规范
+
+当遇到复杂的算法实现或不确定模型返回格式时，**必须先编写独立的验证脚本**进行测试，验证通过后再集成到正式功能中。
+
+### 适用场景
+
+- 新的模型 API 调用（如 VAD、ASR 等模型）
+- 不确定的数据格式解析
+- 复杂的时间戳处理算法
+- 音频/视频处理逻辑
+
+### 验证脚本规范
+
+1. **脚本位置**: 放在 `backend/` 目录根目录，命名格式为 `<功能>_test.py`
+2. **脚本内容**:
+   - 独立运行，不依赖服务框架
+   - 包含详细的日志输出
+   - 测试真实数据文件
+   - 输出完整的结果分析
+
+3. **示例参考**: `backend/vad_test.py` - VAD 语音活动检测验证脚本
+
+### 验证流程
+
+```bash
+# 1. 编写验证脚本
+# 例如: backend/vad_test.py
+
+# 2. 运行验证脚本
+cd backend
+uv run python vad_test.py
+
+# 3. 分析输出结果，确认算法正确
+
+# 4. 将验证通过的代码集成到正式模块
+# 例如: app/services/vad.py
+
+# 5. 验证脚本可保留作为文档和回归测试
+```
+
+### 典型案例：VAD 格式解析
+
+ fsmn-vad 模型返回的实际格式是嵌套列表 `{'value': [[start_ms, end_ms], ...]}`，而非文档中描述的字典格式。通过编写 `vad_test.py` 验证脚本发现了这个差异，从而正确实现了解析逻辑。
