@@ -15,6 +15,16 @@ class Subtitle(Base):
     end_time = Column(Float, nullable=False)
     text = Column(Text, nullable=False)
 
+    # 多语言翻译字段
+    translated_text_en = Column(Text, nullable=True)  # 英语
+    translated_text_ja = Column(Text, nullable=True)  # 日语
+    translated_text_ko = Column(Text, nullable=True)  # 韩语
+    translated_text_fr = Column(Text, nullable=True)  # 法语
+    translated_text_de = Column(Text, nullable=True)  # 德语
+    translated_text_es = Column(Text, nullable=True)  # 西班牙语
+    translated_text_zh_hant = Column(Text, nullable=True)  # 繁体中文
+    translation_languages = Column(Text, nullable=True)  # JSON数组，存储已翻译的语言列表
+
     task = relationship("Task", back_populates="subtitles")
 
     __table_args__ = (
