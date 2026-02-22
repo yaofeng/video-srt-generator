@@ -317,13 +317,12 @@ def _add_punctuation_from_text(segments: List[Dict], full_text: str) -> List[Dic
     """
     为segments添加full_text中对应的标点符号
 
-    策略：
-    1. 追踪full_text中的字符位置
-    2. 找到每个segment对应的文本范围
-    3. 将该范围内的标点符号添加到segment末尾
+    新策略：
+    1. 基于full_text中的标点符号切分成句子
+    2. 为每个句子分配对应的时间范围（基于segments的时间信息）
 
     Args:
-        segments: 不带标点的句子列表
+        segments: 不带标点的句子列表（仅用于时间参考）
         full_text: 包含标点的完整文本
 
     Returns:
@@ -332,70 +331,57 @@ def _add_punctuation_from_text(segments: List[Dict], full_text: str) -> List[Dic
     if not segments or not full_text:
         return segments
 
-    # 构建segments的字符位置映射
-    # segments是按时间顺序的，full_text也是按时间顺序的
-    # 我们需要找到每个segment在full_text中的对应位置
-
-    # 移除full_text中的空格和换行（ASR可能添加的）
+    # 移除full_text中的空格
     clean_text = full_text.replace(' ', '').replace('\n', '').replace('\t', '')
 
-    # 构建字符到时间的映射
-    char_to_time = []
-    char_index = 0
+    # 按标点符号切分clean_text
+    sentence_end_punct = ['。', '！', '？', '.', '!', '?']
 
-    for seg in segments:
-        seg_text = seg['text'].replace(' ', '')
-        for char in seg_text:
-            char_to_time.append({
-                'char': char,
-                'start': seg['start'],
-                'end': seg['end'],
-                'seg_index': len([s for s in segments if s['start'] < seg['start']])
-            })
-            char_index += 1
+    # 切分成句子
+    sentences = []
+    current = []
 
-    # 重新构建带标点的segments
+    for char in clean_text:
+        current.append(char)
+        if char in sentence_end_punct:
+            sentences.append(''.join(current))
+            current = []
+
+    # 处理剩余部分（如果没有以句末标点结尾）
+    if current:
+        text = ''.join(current)
+        # 如果太短，合并到上一句
+        if sentences and len(text) < 5:
+            sentences[-1] += text
+        else:
+            sentences.append(text)
+
+    if not sentences:
+        return segments
+
+    # 为每个句子分配时间范围
+    # 策略：按字符数比例分配时间
+    total_duration = segments[-1]['end'] - segments[0]['start']
+    total_chars = sum(len(s) for s in sentences)
+
     result_segments = []
-    clean_index = 0
+    current_start = segments[0]['start']
 
-    for seg in segments:
-        seg_text = seg['text'].replace(' ', '')
-        seg_start = seg['start']
-        seg_end = seg['end']
+    for i, sentence in enumerate(sentences):
+        # 计算当前句子应该占用的时长
+        char_ratio = len(sentence) / total_chars if total_chars > 0 else (1 / len(sentences))
+        duration = total_duration * char_ratio
 
-        # 在clean_text中找到当前segment对应的文本
-        # 并向后查找，直到遇到下一个segment的开始或句末标点
-        start_pos = clean_index
-        end_pos = start_pos + len(seg_text)
-
-        # 向后查找，包含标点符号，直到遇到句末标点或下一个segment的开始
-        while end_pos < len(clean_text):
-            char = clean_text[end_pos]
-            # 如果是句末标点，包含它并停止
-            if char in ['。', '！', '？', '.', '!', '?']:
-                end_pos += 1
-                break
-            # 如果是停顿标点，包含它并继续
-            elif char in ['，', ',', ';', '；', '、']:
-                end_pos += 1
-            # 检查是否超出当前segment的时间范围
-            # 简单处理：如果字符数明显超过segment的字符数，可能属于下一个segment
-            elif end_pos - start_pos > len(seg_text) * 1.5:
-                break
-            else:
-                end_pos += 1
-
-        # 提取带标点的文本
-        punctuated_text = clean_text[start_pos:end_pos]
-
-        # 更新下一个segment的起始位置
-        clean_index = end_pos
+        # 确保时长合理（最小2秒，最大8秒）
+        duration = max(2.0, min(duration, 8.0))
 
         result_segments.append({
-            'start': seg_start,
-            'end': seg_end,
-            'text': punctuated_text
+            'start': current_start,
+            'end': current_start + duration,
+            'text': sentence
         })
+
+        current_start += duration
 
     return result_segments
 
