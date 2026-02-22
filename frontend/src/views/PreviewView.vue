@@ -277,7 +277,7 @@ const loadTaskData = async () => {
     ])
 
     task.value = taskRes.data
-    subtitles.value = subtitlesRes.data.items || []
+    subtitles.value = subtitlesRes.data.subtitles || []
   } catch (error) {
     console.error('加载数据失败:', error)
     alert('加载数据失败，请重试')
