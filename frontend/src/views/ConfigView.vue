@@ -255,6 +255,97 @@
           </div>
         </section>
 
+        <!-- 翻译配置 -->
+        <section class="config-section">
+          <div class="section-header">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0014.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
+            </svg>
+            <h2>翻译配置</h2>
+          </div>
+
+          <div class="config-grid">
+            <div class="config-item full-width">
+              <label class="config-label">默认目标语言</label>
+              <select v-model="form.default_target_language" class="config-select">
+                <option value="en">英语</option>
+                <option value="ja">日语</option>
+                <option value="ko">韩语</option>
+                <option value="fr">法语</option>
+                <option value="de">德语</option>
+                <option value="es">西班牙语</option>
+                <option value="zh_hant">繁体中文</option>
+              </select>
+              <p class="config-hint">自动翻译时的默认目标语言</p>
+            </div>
+
+            <div class="config-item full-width">
+              <label class="config-label">LLM API Base URL</label>
+              <input
+                v-model="form.llm_api_base"
+                type="text"
+                class="config-input"
+                placeholder="https://api.openai.com/v1"
+              />
+              <p class="config-hint">大语言模型的 API 地址（支持 OpenAI 兼容接口）</p>
+            </div>
+
+            <div class="config-item full-width">
+              <label class="config-label">LLM API Key</label>
+              <input
+                v-model="form.llm_api_key"
+                type="password"
+                class="config-input"
+                placeholder="sk-..."
+              />
+              <p class="config-hint">大语言模型的 API 密钥</p>
+            </div>
+
+            <div class="config-item full-width">
+              <label class="config-label">模型名称</label>
+              <input
+                v-model="form.llm_model"
+                type="text"
+                class="config-input"
+                placeholder="gpt-4"
+              />
+              <p class="config-hint">使用的翻译模型名称</p>
+            </div>
+
+            <div class="config-item">
+              <label class="config-label">
+                分组时间间隔
+                <span class="config-value">{{ form.translation_group_interval }} 秒</span>
+              </label>
+              <input
+                v-model.number="form.translation_group_interval"
+                type="range"
+                min="1"
+                max="10"
+                step="0.5"
+                class="config-slider"
+              />
+              <p class="config-hint">字幕分组的时间间隔阈值</p>
+            </div>
+
+            <div class="config-item">
+              <label class="config-label">
+                每组最大句数
+                <span class="config-value">{{ form.translation_max_sentences }} 句</span>
+              </label>
+              <input
+                v-model.number="form.translation_max_sentences"
+                type="range"
+                min="3"
+                max="8"
+                step="1"
+                class="config-slider"
+              />
+              <p class="config-hint">每组字幕的最大句数</p>
+            </div>
+          </div>
+        </section>
+
         <!-- 操作按钮 -->
         <div class="config-actions">
           <button type="submit" class="save-button" :disabled="saving">
@@ -316,6 +407,14 @@ const form = ref({
   auto_cleanup: true,
   completed_retention_hours: 24,
   failed_retention_hours: 6,
+
+  // 翻译配置
+  default_target_language: 'en',
+  llm_api_base: '',
+  llm_api_key: '',
+  llm_model: '',
+  translation_group_interval: 3.0,
+  translation_max_sentences: 5,
 })
 
 const originalForm = ref({})
@@ -540,6 +639,34 @@ onMounted(() => {
 
 .config-slider::-moz-range-thumb:hover {
   transform: scale(1.1);
+}
+
+.config-select,
+.config-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  transition: all 0.3s ease;
+}
+
+.config-select:focus,
+.config-input:focus {
+  outline: none;
+  border-color: var(--brand-blue);
+  background: rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.config-select {
+  cursor: pointer;
+}
+
+.config-input::placeholder {
+  color: var(--text-muted);
 }
 
 .config-hint {
