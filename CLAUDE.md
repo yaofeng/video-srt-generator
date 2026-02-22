@@ -18,16 +18,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **后端命令**（uv、python 等）：必须在 `backend/` 目录中执行
 - **前端命令**（bun、npm 等）：必须在 `frontend/` 目录中执行
 
-```bash
-# 后端示例
-cd backend
-uv run python -m app.main
-uv sync
+🔔 **强制要求**: 在执行任何命令之前，务必先确认当前工作目录！使用 `pwd` 命令查看当前目录。
 
-# 前端示例
-cd frontend
+```bash
+# 示例：正确的操作流程
+cd /home/ubuntu/workspace/video-srt-generator/backend
+pwd  # 确认当前目录
+uv run python -m app.main
+
+# 如果在其他目录，先切换到正确目录
+cd /home/ubuntu/workspace/video-srt-generator/frontend
+pwd  # 确认当前目录
 bun run dev
-bun run build
 ```
 
 ### Git 提交消息语言
