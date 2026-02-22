@@ -131,8 +131,16 @@ async def start_task(
     # 创建进度队列
     _task_queues[task_id] = asyncio.Queue()
 
-    # 启动后台任务
-    asyncio.create_task(process_task(task_id, db, _task_queues[task_id]))
+    # 启动后台任务，创建独立的数据库会话
+    async def run_task_with_db():
+        from ..core.database import SessionLocal
+        task_db = SessionLocal()
+        try:
+            await process_task(task_id, task_db, _task_queues[task_id])
+        finally:
+            task_db.close()
+
+    asyncio.create_task(run_task_with_db())
 
     return {"message": "任务已开始", "task_id": task_id}
 
@@ -403,6 +411,31 @@ async def retry_task(
 
     if task.status != "failed":
         raise HTTPException(status_code=400, detail=f"只能重试失败的任务（当前状态: {task.status}）")
+
+    # 重置任务状态
+    task.status = "pending"
+    task.error_message = None
+    task.progress = 0
+    task.current_step = None
+    task.started_at = None
+    task.completed_at = None
+    db.commit()
+
+    # 创建进度队列
+    _task_queues[task_id] = asyncio.Queue()
+
+    # 启动后台任务，创建独立的数据库会话
+    async def run_task_with_db():
+        from ..core.database import SessionLocal
+        task_db = SessionLocal()
+        try:
+            await process_task(task_id, task_db, _task_queues[task_id])
+        finally:
+            task_db.close()
+
+    asyncio.create_task(run_task_with_db())
+
+    return {"message": "任务已重新开始", "task_id": task_id}
 
     # 重置任务状态
     task.status = "pending"
