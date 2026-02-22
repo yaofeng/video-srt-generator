@@ -77,7 +77,7 @@
               :class="['language-option', { disabled: isLanguageTranslated(lang.code) }]"
               :disabled="isLanguageTranslated(lang.code)"
             >
-              <span class="flag">{{ lang.flag }}</span>
+              <span class="flag">{{ languageFlags[lang.code] || '🌐' }}</span>
               <span class="name">{{ lang.name }}</span>
               <span v-if="isLanguageTranslated(lang.code)" class="status">✓</span>
             </button>
@@ -218,25 +218,29 @@ const translationInProgress = ref(false)
 const translationProgress = ref(0)
 const translationStep = ref('')
 
-// 支持的语言
-const supportedLanguages = [
-  { code: 'en', name: '英语', flag: '🇬🇧' },
-  { code: 'ja', name: '日语', flag: '🇯🇵' },
-  { code: 'ko', name: '韩语', flag: '🇰🇷' },
-  { code: 'fr', name: '法语', flag: '🇫🇷' },
-  { code: 'de', name: '德语', flag: '🇩🇪' },
-  { code: 'es', name: '西班牙语', flag: '🇪🇸' },
-  { code: 'zh_hant', name: '繁体中文', flag: '🇹🇼' }
-]
+// 支持的语言（从配置 API 动态获取）
+const supportedLanguages = ref([])
+
+// 语言代码到国旗的映射
+const languageFlags = {
+  'zh': '🇨🇳',
+  'en': '🇬🇧',
+  'ja': '🇯🇵',
+  'ko': '🇰🇷',
+  'fr': '🇫🇷',
+  'de': '🇩🇪',
+  'es': '🇪🇸',
+  'zh_hant': '🇹🇼',
+}
 
 // 可用的语言列表（包括原文和已翻译的语言）
 const availableLanguages = computed(() => {
   const langs = [{ code: 'original', name: '原文', flag: '🎬' }]
   translations.value.forEach(t => {
     if (t.status === 'completed') {
-      const langInfo = supportedLanguages.find(l => l.code === t.language)
+      const langInfo = supportedLanguages.value.find(l => l.code === t.language)
       if (langInfo) {
-        langs.push({ code: t.language, name: langInfo.name, flag: langInfo.flag })
+        langs.push({ code: t.language, name: langInfo.name, flag: languageFlags[t.language] || '🌐' })
       }
     }
   })
@@ -418,14 +422,28 @@ const toggleDownloadMenu = () => {
 
 // 获取语言名称
 const getLanguageName = (code) => {
-  const lang = supportedLanguages.find(l => l.code === code)
+  const lang = supportedLanguages.value.find(l => l.code === code)
   return lang ? lang.name : code
 }
 
 // 获取语言标志
 const getLanguageFlag = (code) => {
-  const lang = supportedLanguages.find(l => l.code === code)
-  return lang ? lang.flag : '🌐'
+  return languageFlags[code] || '🌐'
+}
+
+// 加载支持的语言列表
+const loadSupportedLanguages = async () => {
+  try {
+    const response = await axios.get(`${API_BASE}/api/config/`)
+    supportedLanguages.value = response.data.supported_languages || []
+  } catch (error) {
+    console.error('加载支持的语言列表失败:', error)
+    // 使用默认值
+    supportedLanguages.value = [
+      { code: 'zh', name: '中文' },
+      { code: 'en', name: '英语' }
+    ]
+  }
 }
 
 // 检查语言是否已翻译
@@ -553,8 +571,9 @@ const handleClickOutside = (event) => {
   }
 }
 
-onMounted(() => {
-  loadTaskData()
+onMounted(async () => {
+  await loadSupportedLanguages()
+  await loadTaskData()
   document.addEventListener('click', handleClickOutside)
 })
 

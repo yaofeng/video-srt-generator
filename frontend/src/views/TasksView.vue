@@ -91,6 +91,16 @@
               </svg>
             </button>
             <button
+              v-if="task.status === 'completed' || task.status === 'failed'"
+              @click="reprocessTask(task)"
+              class="action-btn reprocess-btn"
+              title="重新识别"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+                <path d="M9 3L5 7h3v5h2V7h3L9 3zm0 12l4-4h-3V6H9v5H6l3 4z"/>
+              </svg>
+            </button>
+            <button
               v-if="task.status === 'failed'"
               @click="retryTask(task)"
               class="action-btn retry-btn"
@@ -238,6 +248,23 @@ const retryTask = async (task) => {
   } catch (error) {
     console.error('重试任务失败:', error)
     alert('重试失败: ' + (error.response?.data?.detail || error.message))
+  }
+}
+
+const reprocessTask = async (task) => {
+  if (!confirm(`确定要重新识别 "${task.filename}" 吗？这将删除当前的字幕并重新生成。`)) {
+    return
+  }
+
+  try {
+    await axios.post(`${API_BASE}/api/tasks/${task.id}/reprocess`)
+    // 刷新任务列表
+    await loadTasks()
+    // 跳转到处理页面
+    router.push(`/processing/${task.id}`)
+  } catch (error) {
+    console.error('重新识别失败:', error)
+    alert('重新识别失败: ' + (error.response?.data?.detail || error.message))
   }
 }
 
@@ -563,6 +590,16 @@ onMounted(() => {
 
 .retry-btn:hover {
   background: rgba(251, 191, 36, 0.3);
+  transform: scale(1.1);
+}
+
+.reprocess-btn {
+  background: rgba(6, 182, 212, 0.2);
+  color: var(--brand-cyan);
+}
+
+.reprocess-btn:hover {
+  background: rgba(6, 182, 212, 0.3);
   transform: scale(1.1);
 }
 

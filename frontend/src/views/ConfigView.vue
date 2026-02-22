@@ -268,13 +268,13 @@
             <div class="config-item full-width">
               <label class="config-label">默认目标语言</label>
               <select v-model="form.default_target_language" class="config-select">
-                <option value="en">英语</option>
-                <option value="ja">日语</option>
-                <option value="ko">韩语</option>
-                <option value="fr">法语</option>
-                <option value="de">德语</option>
-                <option value="es">西班牙语</option>
-                <option value="zh_hant">繁体中文</option>
+                <option
+                  v-for="lang in form.supported_languages"
+                  :key="lang.code"
+                  :value="lang.code"
+                >
+                  {{ lang.name }}
+                </option>
               </select>
               <p class="config-hint">自动翻译时的默认目标语言</p>
             </div>
