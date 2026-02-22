@@ -252,12 +252,14 @@ def _merge_char_segments_to_sentences(
 
         # 2. 停顿标点
         if curr_seg['text'] in pause_punct:
-            last_pause_idx = len(current_chars)
             current_chars.append(curr_seg)
+            last_pause_idx = len(current_chars)
 
             # 如果达到目标时长，且有停顿标点，考虑切分
             if current_duration >= target_duration:
                 should_split = True
+            else:
+                continue  # 停顿标点已添加，不需要后面的处理
 
         # 3. 时间停顿切分（语音停顿）
         elif gap > 0.5 and current_duration >= min_duration:
@@ -283,7 +285,7 @@ def _merge_char_segments_to_sentences(
             current_chars = [curr_seg]
             last_pause_idx = -1
         else:
-            # 继续累积
+            # 继续累积（非停顿标点的情况）
             current_chars.append(curr_seg)
 
     # 处理剩余字符
