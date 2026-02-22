@@ -149,8 +149,20 @@ async def process_task(
                     _log(db, task_id, 'info', f'  片段 {i+1}: 进行第 {attempt+1} 次识别尝试...')
                     asr_result = await transcribe_audio(Path(seg_info['audio_path']))
                     segments_count = len(asr_result.get('segments', []))
-                    all_segments.extend(asr_result.get('segments', []))
+
+                    # 调整时间偏移：每个片段的时间戳需要加上该片段在原始音频中的起始时间
+                    segment_start_offset = seg_info['start_time']
+                    adjusted_segments = []
+                    for seg in asr_result.get('segments', []):
+                        adjusted_segments.append({
+                            'start': seg['start'] + segment_start_offset,
+                            'end': seg['end'] + segment_start_offset,
+                            'text': seg['text']
+                        })
+                    all_segments.extend(adjusted_segments)
+
                     _log(db, task_id, 'info', f'  片段 {i+1}: 识别成功，生成 {segments_count} 条字幕')
+                    _log(db, task_id, 'info', f'  片段 {i+1}: 时间偏移 +{segment_start_offset:.2f}s')
 
                     if segment:
                         segment.status = 'completed'
