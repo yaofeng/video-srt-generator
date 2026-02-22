@@ -152,14 +152,20 @@ async def transcribe_audio(
 
             # Qwen3-ForcedAligner 返回的时间戳是 token/字符级别的
             # 格式: ForcedAlignItem(text, start_time, end_time)
+            # 需要按标点符号合并成句子级别
             segments = []
             if result.time_stamps is not None:
+                # 先转换字符级别时间戳
+                char_segments = []
                 for item in result.time_stamps:
-                    segments.append({
+                    char_segments.append({
                         'start': float(item.start_time),
                         'end': float(item.end_time),
                         'text': str(item.text)
                     })
+
+                # 按标点符号合并成句子
+                segments = _merge_char_segments_to_sentences(char_segments)
 
             return {
                 'text': text,
@@ -171,6 +177,63 @@ async def transcribe_audio(
             raise RuntimeError(f"ASR 识别失败: {str(e)}")
 
     return await asyncio.get_event_loop().run_in_executor(None, _transcribe)
+
+
+def _merge_char_segments_to_sentences(char_segments: List[Dict]) -> List[Dict]:
+    """
+    将字符级别的时间戳合并成句子级别
+
+    策略：按标点符号切分，每个句子取第一个字符的开始时间和最后一个字符的结束时间
+
+    Args:
+        char_segments: 字符级别的时间戳列表
+
+    Returns:
+        List[Dict]: 句子级别的时间戳列表
+    """
+    if not char_segments:
+        return []
+
+    # 标点符号集合
+    punctuation = {'。', '！', '？', '.', '!', '?', '；', ';', '，', ','}
+
+    sentences = []
+    current_chars = []
+
+    for seg in char_segments:
+        char = seg['text']
+
+        current_chars.append(seg)
+
+        # 如果是标点符号，结束当前句子
+        if char in punctuation:
+            if current_chars:
+                # 合并当前字符为一个句子
+                sentence_text = ''.join([c['text'] for c in current_chars])
+                sentence_start = current_chars[0]['start']
+                sentence_end = current_chars[-1]['end']
+
+                sentences.append({
+                    'start': sentence_start,
+                    'end': sentence_end,
+                    'text': sentence_text
+                })
+
+                current_chars = []
+
+    # 处理剩余字符（没有以标点结尾）
+    if current_chars:
+        sentence_text = ''.join([c['text'] for c in current_chars])
+        sentence_start = current_chars[0]['start']
+        sentence_end = current_chars[-1]['end']
+
+        sentences.append({
+            'start': sentence_start,
+            'end': sentence_end,
+            'text': sentence_text
+        })
+
+    return sentences
 
 
 async def batch_transcribe(
