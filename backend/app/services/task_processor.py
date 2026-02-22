@@ -67,26 +67,26 @@ async def process_task(
             'progress': 0,
             'step': '开始处理...'
         }))
-        _log(db, task_id, 'info', '任务开始处理')
+        await _log(db, task_id, 'info', '任务开始处理', progress_queue)
 
         # 1. 提取音频
-        _log(db, task_id, 'info', f'开始从视频提取音频: {task.filename}')
-        _log(db, task_id, 'info', f'视频文件路径: {task.file_path}')
+        await _log(db, task_id, 'info', f'开始从视频提取音频: {task.filename}', progress_queue)
+        await _log(db, task_id, 'info', f'视频文件路径: {task.file_path}', progress_queue)
         audio_path = settings.OUTPUT_DIR / f"{task_id}_audio.wav"
-        _log(db, task_id, 'info', f'音频输出路径: {audio_path}')
+        await _log(db, task_id, 'info', f'音频输出路径: {audio_path}', progress_queue)
         await extract_audio(Path(task.file_path), audio_path)
-        _log(db, task_id, 'info', '音频提取完成')
+        await _log(db, task_id, 'info', '音频提取完成', progress_queue)
 
         # 2. 获取视频时长
         duration = await get_video_duration(Path(task.file_path))
         task.duration_seconds = int(duration)
         db.commit()
-        _log(db, task_id, 'info', f'视频时长: {duration:.2f} 秒')
+        await _log(db, task_id, 'info', f'视频时长: {duration:.2f} 秒', progress_queue)
 
         # 3. VAD 切分
-        _log(db, task_id, 'info', '开始语音活动检测 (VAD)...')
-        _log(db, task_id, 'info', f'最小片段时长: {settings.SEGMENT_MIN_DURATION}秒')
-        _log(db, task_id, 'info', f'最大片段时长: {settings.SEGMENT_MAX_DURATION}秒')
+        await _log(db, task_id, 'info', '开始语音活动检测 (VAD)...', progress_queue)
+        await _log(db, task_id, 'info', f'最小片段时长: {settings.SEGMENT_MIN_DURATION}秒', progress_queue)
+        await _log(db, task_id, 'info', f'最大片段时长: {settings.SEGMENT_MAX_DURATION}秒', progress_queue)
         await progress_queue.put(ProgressEvent('progress', {
             'progress': 10,
             'step': '正在进行语音活动检测...'
@@ -100,10 +100,10 @@ async def process_task(
             max_duration=settings.SEGMENT_MAX_DURATION
         )
 
-        _log(db, task_id, 'info', f'VAD 检测完成，共检测到 {len(segments)} 个音频片段')
+        await _log(db, task_id, 'info', f'VAD 检测完成，共检测到 {len(segments)} 个音频片段', progress_queue)
 
         # 4. 保存片段信息到数据库
-        _log(db, task_id, 'info', '保存片段信息到数据库...')
+        await _log(db, task_id, 'info', '保存片段信息到数据库...', progress_queue)
         for seg in segments:
             segment = Segment(
                 task_id=task_id,
@@ -113,13 +113,13 @@ async def process_task(
                 audio_path=seg['audio_path']
             )
             db.add(segment)
-            _log(db, task_id, 'info', f"  片段 {seg['index']}: {seg['start_time']:.2f}s - {seg['end_time']:.2f}s (时长: {seg['end_time']-seg['start_time']:.2f}s)")
+            await _log(db, task_id, 'info', f"  片段 {seg['index']}: {seg['start_time']:.2f}s - {seg['end_time']:.2f}s (时长: {seg['end_time']-seg['start_time']:.2f}s)", progress_queue)
         db.commit()
 
         # 5. ASR 识别
-        _log(db, task_id, 'info', '开始语音识别 (ASR)...')
-        _log(db, task_id, 'info', f'使用模型: Qwen3-ASR-1.7B + ForcedAligner')
-        _log(db, task_id, 'info', f'最大重试次数: {settings.MAX_RETRY_ATTEMPTS}')
+        await _log(db, task_id, 'info', '开始语音识别 (ASR)...', progress_queue)
+        await _log(db, task_id, 'info', f'使用模型: Qwen3-ASR-1.7B + ForcedAligner', progress_queue)
+        await _log(db, task_id, 'info', f'最大重试次数: {settings.MAX_RETRY_ATTEMPTS}', progress_queue)
         all_segments = []
         failed_segments = []
 
@@ -128,7 +128,7 @@ async def process_task(
                 'progress': 20 + int(60 * i / len(segments)),
                 'step': f'正在识别片段 {i+1}/{len(segments)}...'
             }))
-            _log(db, task_id, 'info', f'开始识别片段 {i+1}/{len(segments)} (索引: {seg_info["index"]})')
+            await _log(db, task_id, 'info', f'开始识别片段 {i+1}/{len(segments)} (索引: {seg_info["index"]})', progress_queue)
 
             # 更新片段状态
             result = db.execute(
@@ -146,7 +146,7 @@ async def process_task(
             # 重试逻辑
             for attempt in range(settings.MAX_RETRY_ATTEMPTS):
                 try:
-                    _log(db, task_id, 'info', f'  片段 {i+1}: 进行第 {attempt+1} 次识别尝试...')
+                    await _log(db, task_id, 'info', f'  片段 {i+1}: 进行第 {attempt+1} 次识别尝试...', progress_queue)
                     asr_result = await transcribe_audio(Path(seg_info['audio_path']))
                     segments_count = len(asr_result.get('segments', []))
 
@@ -161,21 +161,21 @@ async def process_task(
                         })
                     all_segments.extend(adjusted_segments)
 
-                    _log(db, task_id, 'info', f'  片段 {i+1}: 识别成功，生成 {segments_count} 条字幕')
-                    _log(db, task_id, 'info', f'  片段 {i+1}: 时间偏移 +{segment_start_offset:.2f}s')
+                    await _log(db, task_id, 'info', f'  片段 {i+1}: 识别成功，生成 {segments_count} 条字幕', progress_queue)
+                    await _log(db, task_id, 'info', f'  片段 {i+1}: 时间偏移 +{segment_start_offset:.2f}s', progress_queue)
 
                     if segment:
                         segment.status = 'completed'
                         db.commit()
 
-                    _log(db, task_id, 'info', f'片段 {i+1} 识别完成')
+                    await _log(db, task_id, 'info', f'片段 {i+1} 识别完成', progress_queue)
                     break
 
                 except Exception as e:
                     logger.error(f"片段 {i+1} 识别失败 (尝试 {attempt+1}/{settings.MAX_RETRY_ATTEMPTS}): {e}")
 
                     if attempt == settings.MAX_RETRY_ATTEMPTS - 1:
-                        _log(db, task_id, 'error', f'片段 {i+1} 识别失败: {str(e)}')
+                        await _log(db, task_id, 'error', f'片段 {i+1} 识别失败: {str(e)}', progress_queue)
                         if segment:
                             segment.status = 'failed'
                             segment.retry_count = settings.MAX_RETRY_ATTEMPTS
@@ -184,16 +184,16 @@ async def process_task(
                         failed_segments.append(i + 1)
                     else:
                         wait_time = settings.RETRY_BASE_DELAY * (2 ** attempt)
-                        _log(db, task_id, 'warning', f'片段 {i+1} 识别失败，{wait_time}秒后重试 ({attempt+1}/{settings.MAX_RETRY_ATTEMPTS})')
+                        await _log(db, task_id, 'warning', f'片段 {i+1} 识别失败，{wait_time}秒后重试 ({attempt+1}/{settings.MAX_RETRY_ATTEMPTS})', progress_queue)
                         if segment:
                             segment.retry_count = attempt + 1
                             db.commit()
                         await asyncio.sleep(wait_time)
 
-        _log(db, task_id, 'info', f'ASR 识别完成，共生成 {len(all_segments)} 条原始字幕')
+        await _log(db, task_id, 'info', f'ASR 识别完成，共生成 {len(all_segments)} 条原始字幕', progress_queue)
 
         if failed_segments:
-            _log(db, task_id, 'warning', f'共有 {len(failed_segments)} 个片段识别失败: {failed_segments}')
+            await _log(db, task_id, 'warning', f'共有 {len(failed_segments)} 个片段识别失败: {failed_segments}', progress_queue)
 
         # 6. 生成 SRT
         await progress_queue.put(ProgressEvent('progress', {
@@ -201,11 +201,11 @@ async def process_task(
             'step': '正在生成字幕文件...'
         }))
 
-        _log(db, task_id, 'info', '开始生成 SRT 字幕文件...')
+        await _log(db, task_id, 'info', '开始生成 SRT 字幕文件...', progress_queue)
         srt_filename = f"{Path(task.filename).stem}_字幕.srt"
         srt_path = settings.OUTPUT_DIR / srt_filename
-        _log(db, task_id, 'info', f'SRT 文件路径: {srt_path}')
-        _log(db, task_id, 'info', f'字幕参数: 最小时长={settings.SUBTITLE_MIN_DURATION}s, 最大时长={settings.SUBTITLE_MAX_DURATION}s, 合并阈值={settings.SUBTITLE_MERGE_THRESHOLD}s')
+        await _log(db, task_id, 'info', f'SRT 文件路径: {srt_path}', progress_queue)
+        await _log(db, task_id, 'info', f'字幕参数: 最小时长={settings.SUBTITLE_MIN_DURATION}s, 最大时长={settings.SUBTITLE_MAX_DURATION}s, 合并阈值={settings.SUBTITLE_MERGE_THRESHOLD}s', progress_queue)
 
         await generate_srt(
             all_segments,
@@ -214,15 +214,15 @@ async def process_task(
             max_duration=settings.SUBTITLE_MAX_DURATION,
             merge_threshold=settings.SUBTITLE_MERGE_THRESHOLD
         )
-        _log(db, task_id, 'info', f'SRT 文件生成完成')
+        await _log(db, task_id, 'info', f'SRT 文件生成完成', progress_queue)
 
         # 7. 保存字幕到数据库（从生成的SRT文件中读取，确保一致性）
         from .srt import parse_srt
-        _log(db, task_id, 'info', '解析 SRT 文件并保存到数据库...')
+        await _log(db, task_id, 'info', '解析 SRT 文件并保存到数据库...', progress_queue)
         srt_subtitles = parse_srt(srt_path)
-        _log(db, task_id, 'info', f'从 SRT 文件解析出 {len(srt_subtitles)} 条字幕')
+        await _log(db, task_id, 'info', f'从 SRT 文件解析出 {len(srt_subtitles)} 条字幕', progress_queue)
         await _save_subtitles(db, task_id, srt_subtitles)
-        _log(db, task_id, 'info', f'字幕已保存到数据库')
+        await _log(db, task_id, 'info', f'字幕已保存到数据库', progress_queue)
 
         # 8. 更新任务状态
         task.status = 'completed'
@@ -237,8 +237,8 @@ async def process_task(
             'subtitle_count': len(srt_subtitles)
         }))
 
-        _log(db, task_id, 'info', f'任务完成！共生成 {len(srt_subtitles)} 条字幕')
-        _log(db, task_id, 'info', f'SRT 文件: {srt_filename}')
+        await _log(db, task_id, 'info', f'任务完成！共生成 {len(srt_subtitles)} 条字幕', progress_queue)
+        await _log(db, task_id, 'info', f'SRT 文件: {srt_filename}', progress_queue)
 
         return {
             'status': 'completed',
@@ -260,17 +260,28 @@ async def process_task(
             'error': f'处理失败: {str(e)}'
         }))
 
-        _log(db, task_id, 'error', f'任务失败: {str(e)}')
+        await _log(db, task_id, 'error', f'任务失败: {str(e)}', progress_queue)
 
         return {'status': 'error', 'message': str(e)}
 
 
-def _log(db: Session, task_id: str, level: str, message: str):
-    """记录日志（同步）"""
+async def _log(db: Session, task_id: str, level: str, message: str, progress_queue: Optional[asyncio.Queue] = None):
+    """记录日志（异步）"""
     try:
+        # 保存到数据库
         log = Log(task_id=task_id, level=level, message=message)
         db.add(log)
         db.commit()
+
+        # 发送到 SSE 队列
+        if progress_queue:
+            await progress_queue.put(ProgressEvent('log', {
+                'level': level,
+                'message': message
+            }))
+
+        # 同时打印到控制台
+        logger.info(f"[{task_id}] [{level.upper()}] {message}")
     except Exception as e:
         logger.error(f"日志记录失败: {e}")
 
