@@ -25,15 +25,10 @@ class TranslationError(Exception):
 
 
 def get_language_name(code: str) -> str:
-    """获取语言名称"""
+    """获取语言名称（与 config.py 中的 SUPPORTED_LANGUAGES 对应）"""
     lang_map = {
+        'zh': '中文',
         'en': '英语',
-        'ja': '日语',
-        'ko': '韩语',
-        'fr': '法语',
-        'de': '德语',
-        'es': '西班牙语',
-        'zh_hant': '繁体中文',
     }
     return lang_map.get(code, code)
 

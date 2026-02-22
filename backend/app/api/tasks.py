@@ -2,7 +2,7 @@
 import asyncio
 from typing import Optional
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
@@ -270,9 +270,10 @@ async def download_subtitles(
 @router.get("/{task_id}/video")
 async def get_video(
     task_id: str,
+    request: Request,
     db: Session = Depends(get_db)
 ):
-    """获取视频文件用于预览"""
+    """获取视频文件用于预览，支持范围请求"""
     result = db.execute(select(Task).where(Task.id == task_id))
     task = result.scalar_one_or_none()
 
@@ -286,10 +287,54 @@ async def get_video(
     # 获取文件扩展名对应的 MIME 类型
     import mimetypes
     media_type = mimetypes.guess_type(str(video_path))[0] or 'video/mp4'
+    file_size = video_path.stat().st_size
 
+    # 处理范围请求
+    range_header = request.headers.get("range")
+
+    if range_header:
+        # 解析 Range 头
+        try:
+            start, end = range_header.replace("bytes=", "").split("-")
+            start = int(start)
+            end = int(end) if end else file_size - 1
+        except ValueError:
+            raise HTTPException(status_code=400, detail="无效的 Range 头")
+
+        # 验证范围
+        if start >= file_size or end >= file_size or start > end:
+            raise HTTPException(
+                status_code=416,
+                detail=f"请求范围无效 (文件大小: {file_size} 字节)",
+                headers={"Content-Range": f"bytes */{file_size}"}
+            )
+
+        # 读取指定范围的数据
+        chunk_size = end - start + 1
+        with open(video_path, "rb") as f:
+            f.seek(start)
+            content = f.read(chunk_size)
+
+        return Response(
+            content=content,
+            status_code=206,  # Partial Content
+            media_type=media_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(chunk_size),
+                "Cache-Control": "public, max-age=3600",
+            }
+        )
+
+    # 返回完整文件
     return FileResponse(
         path=str(video_path),
-        media_type=media_type
+        media_type=media_type,
+        headers={
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'public, max-age=3600',
+        }
     )
 
 
@@ -436,3 +481,60 @@ async def retry_task(
     asyncio.create_task(run_task_with_db())
 
     return {"message": "任务已重新开始", "task_id": task_id}
+
+
+@router.post("/{task_id}/reprocess")
+async def reprocess_task(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """重新识别已完成或失败的任务（重新生成字幕）"""
+    result = db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if task.status == "processing" or task.status == "pending":
+        raise HTTPException(status_code=400, detail=f"任务正在处理中，无法重新识别（当前状态: {task.status}）")
+
+    # 保存原始文件名和路径
+    original_filename = task.filename
+    original_file_path = task.file_path
+    original_file_size = task.file_size
+
+    # 删除旧的字幕记录
+    db.execute(delete(Subtitle).where(Subtitle.task_id == task_id))
+
+    # 重置任务状态
+    task.status = "pending"
+    task.error_message = None
+    task.progress = 0
+    task.current_step = None
+    task.started_at = None
+    task.completed_at = None
+    task.duration_seconds = None
+    db.commit()
+
+    # 删除旧的 SRT 文件
+    if original_filename:
+        srt_filename = f"{Path(original_filename).stem}_字幕.srt"
+        srt_path = settings.OUTPUT_DIR / srt_filename
+        if srt_path.exists():
+            srt_path.unlink()
+
+    # 创建进度队列
+    _task_queues[task_id] = asyncio.Queue()
+
+    # 启动后台任务，创建独立的数据库会话
+    async def run_task_with_db():
+        from ..core.database import SessionLocal
+        task_db = SessionLocal()
+        try:
+            await process_task(task_id, task_db, _task_queues[task_id])
+        finally:
+            task_db.close()
+
+    asyncio.create_task(run_task_with_db())
+
+    return {"message": "开始重新识别", "task_id": task_id}

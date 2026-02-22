@@ -223,6 +223,11 @@ def merge_short_subtitles(
     """
     合并短字幕
 
+    策略：
+    - 只合并真正的"碎片"字幕（非常短的字幕，如 < 1 秒）
+    - 不合并已包含完整句子的字幕（以句末标点结尾）
+    - 尊重原始的句子切分
+
     Args:
         subtitles: 字幕列表
         threshold: 合并阈值（秒），相邻短字幕间隔小于此值时合并
@@ -236,22 +241,40 @@ def merge_short_subtitles(
     if len(subtitles) == 1:
         return subtitles
 
+    # 句末标点
+    sentence_end_punct = {'。', '！', '？', '.', '!', '?'}
+
     merged = []
     current = subtitles[0].copy()
+    current_text = current['text'].strip()
+    current_ends_with_punct = current_text and current_text[-1] in sentence_end_punct if current_text else False
 
     for next_sub in subtitles[1:]:
         gap = next_sub['start'] - current['end']
         current_duration = current['end'] - current['start']
         next_duration = next_sub['end'] - next_sub['start']
+        next_text = next_sub['text'].strip()
+        next_ends_with_punct = next_text and next_text[-1] in sentence_end_punct if next_text else False
 
-        # 如果当前字幕或下个字幕很短，且间隔很小，合并
-        if (current_duration < threshold or next_duration < threshold) and gap < threshold:
+        # 合并条件（必须同时满足）：
+        # 1. 当前字幕非常短（< 1秒）或下个字幕非常短（< 1秒）
+        # 2. 间隔很小（< threshold）
+        # 3. 当前字幕不以句末标点结尾（不是完整句子）
+        is_very_short = current_duration < 1.0 or next_duration < 1.0
+        small_gap = gap < threshold
+        not_complete_sentence = not current_ends_with_punct
+
+        if is_very_short and small_gap and not_complete_sentence:
             # 合并
             current['end'] = next_sub['end']
             current['text'] = current['text'] + ' ' + next_sub['text']
+            current_text = current['text'].strip()
+            current_ends_with_punct = current_text and current_text[-1] in sentence_end_punct if current_text else False
         else:
             merged.append(current)
             current = next_sub.copy()
+            current_text = current['text'].strip()
+            current_ends_with_punct = current_text and current_text[-1] in sentence_end_punct if current_text else False
 
     # 添加最后一个
     merged.append(current)
