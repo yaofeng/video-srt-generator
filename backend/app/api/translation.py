@@ -129,66 +129,68 @@ async def create_translation_task(
     db.commit()
 
     # 5. 启动后台翻译任务（使用独立会话）
-    async def run_translation_task():
+    def run_translation_task():
+        """在后台线程中运行翻译任务"""
         # 为后台任务创建独立的数据库会话
         from ..core.database import SessionLocal
         independent_db = SessionLocal()
         progress_queue = asyncio.Queue()
 
-        try:
-            # 启动翻译任务和进度处理器
-            translation_task_handler = asyncio.create_task(
-                process_translation_task(
-                    translation_task_id,
-                    task_id,
-                    request.target_language,
-                    independent_db,
-                    progress_queue
+        async def run_async():
+            try:
+                # 启动翻译任务和进度处理器
+                translation_task_handler = asyncio.create_task(
+                    process_translation_task(
+                        translation_task_id,
+                        task_id,
+                        request.target_language,
+                        independent_db,
+                        progress_queue
+                    )
                 )
-            )
 
-            # 处理进度更新
-            while True:
-                try:
-                    # 设置超时以避免永久阻塞
-                    event = await asyncio.wait_for(progress_queue.get(), timeout=2.0)
+                # 处理进度更新
+                while True:
+                    try:
+                        # 设置超时以避免永久阻塞
+                        event = await asyncio.wait_for(progress_queue.get(), timeout=2.0)
 
-                    # 更新数据库中的进度
-                    if event['type'] == 'progress':
-                        independent_db.execute(
-                            select(TranslationTask).where(TranslationTask.id == translation_task_id)
-                        )
-                        trans_task = independent_db.execute(
-                            select(TranslationTask).where(TranslationTask.id == translation_task_id)
-                        ).scalar_one_or_none()
+                        # 更新数据库中的进度
+                        if event['type'] == 'progress':
+                            trans_task = independent_db.execute(
+                                select(TranslationTask).where(TranslationTask.id == translation_task_id)
+                            ).scalar_one_or_none()
 
-                        if trans_task:
-                            trans_task.progress = event['data']['progress']
-                            trans_task.current_step = event['data']['step']
-                            independent_db.commit()
+                            if trans_task:
+                                trans_task.progress = event['data']['progress']
+                                trans_task.current_step = event['data']['step']
+                                independent_db.commit()
 
-                    elif event['type'] == 'complete':
-                        # 任务完成，退出循环
-                        break
+                        elif event['type'] == 'complete':
+                            # 任务完成，退出循环
+                            break
 
-                    elif event['type'] == 'error':
-                        # 任务出错，退出循环
-                        break
+                        elif event['type'] == 'error':
+                            # 任务出错，退出循环
+                            break
 
-                except asyncio.TimeoutError:
-                    # 检查翻译任务是否还在运行
-                    if translation_task_handler.done():
-                        break
-                    continue
-                except Exception as e:
-                    logger.error(f"处理进度更新失败: {e}")
-                    continue
+                    except asyncio.TimeoutError:
+                        # 检查翻译任务是否还在运行
+                        if translation_task_handler.done():
+                            break
+                        continue
+                    except Exception as e:
+                        logger.error(f"处理进度更新失败: {e}")
+                        continue
 
-            # 等待翻译任务完成
-            await translation_task_handler
+                # 等待翻译任务完成
+                await translation_task_handler
 
-        finally:
-            independent_db.close()
+            finally:
+                independent_db.close()
+
+        # 在新的事件循环中运行异步任务
+        asyncio.run(run_async())
 
     background_tasks.add_task(run_translation_task)
 
