@@ -55,6 +55,29 @@ class Settings(BaseSettings):
         "http://172.16.2.68:8000",
     ]
 
+    # LLM API 配置
+    LLM_API_BASE: str = ""
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = ""
+
+    # 翻译配置
+    DEFAULT_TARGET_LANGUAGE: str = "en"
+    TRANSLATION_GROUP_INTERVAL: float = 3.0
+    TRANSLATION_MAX_SENTENCES_PER_GROUP: int = 5
+    TRANSLATION_RETRY_ATTEMPTS: int = 3
+    TRANSLATION_TIMEOUT: int = 30
+
+    # 支持的语言列表
+    SUPPORTED_LANGUAGES: List[dict] = [
+        {"code": "en", "name": "英语"},
+        {"code": "ja", "name": "日语"},
+        {"code": "ko", "name": "韩语"},
+        {"code": "fr", "name": "法语"},
+        {"code": "de", "name": "德语"},
+        {"code": "es", "name": "西班牙语"},
+        {"code": "zh_hant", "name": "繁体中文"},
+    ]
+
     model_config = SettingsConfigDict(env_file=".env")
 
 settings = Settings()

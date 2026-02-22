@@ -33,6 +33,14 @@ class ConfigResponse(BaseModel):
     completed_retention_hours: int = Field(description="已完成任务保留时长（小时）")
     failed_retention_hours: int = Field(description="失败任务保留时长（小时）")
 
+    # 翻译配置
+    default_target_language: str = Field(description="默认目标语言")
+    llm_api_base: str = Field(description="LLM API Base URL")
+    llm_model: str = Field(description="LLM 模型名称")
+    translation_group_interval: float = Field(description="翻译分组时间间隔（秒）")
+    translation_max_sentences: int = Field(description="每组最大句数")
+    supported_languages: List[dict] = Field(description="支持的语言列表")
+
 
 class ConfigUpdate(BaseModel):
     """配置更新"""
@@ -51,6 +59,14 @@ class ConfigUpdate(BaseModel):
     auto_cleanup: Optional[bool] = Field(None, description="自动清理文件")
     completed_retention_hours: Optional[int] = Field(None, ge=1, le=168, description="已完成任务保留时长（小时）")
     failed_retention_hours: Optional[int] = Field(None, ge=1, le=72, description="失败任务保留时长（小时）")
+
+    # 翻译配置更新
+    default_target_language: Optional[str] = Field(None, description="默认目标语言")
+    llm_api_base: Optional[str] = Field(None, description="LLM API Base URL")
+    llm_api_key: Optional[str] = Field(None, description="LLM API Key")
+    llm_model: Optional[str] = Field(None, description="LLM 模型名称")
+    translation_group_interval: Optional[float] = Field(None, ge=1.0, le=10.0, description="翻译分组时间间隔（秒）")
+    translation_max_sentences: Optional[int] = Field(None, ge=3, le=8, description="每组最大句数")
 
 
 @router.get("/", response_model=ConfigResponse)
@@ -72,6 +88,14 @@ async def get_config():
         auto_cleanup=settings.AUTO_CLEANUP,
         completed_retention_hours=settings.COMPLETED_RETENTION_HOURS,
         failed_retention_hours=settings.FAILED_RETENTION_HOURS,
+
+        # 翻译配置
+        default_target_language=settings.DEFAULT_TARGET_LANGUAGE,
+        llm_api_base=settings.LLM_API_BASE,
+        llm_model=settings.LLM_MODEL,
+        translation_group_interval=settings.TRANSLATION_GROUP_INTERVAL,
+        translation_max_sentences=settings.TRANSLATION_MAX_SENTENCES_PER_GROUP,
+        supported_languages=settings.SUPPORTED_LANGUAGES,
     )
 
 
@@ -130,6 +154,31 @@ async def update_config(config: ConfigUpdate):
     if config.failed_retention_hours is not None:
         settings.FAILED_RETENTION_HOURS = config.failed_retention_hours
         updated_fields.append("failed_retention_hours")
+
+    # 翻译配置更新
+    if config.default_target_language is not None:
+        settings.DEFAULT_TARGET_LANGUAGE = config.default_target_language
+        updated_fields.append("default_target_language")
+
+    if config.llm_api_base is not None:
+        settings.LLM_API_BASE = config.llm_api_base
+        updated_fields.append("llm_api_base")
+
+    if config.llm_api_key is not None:
+        settings.LLM_API_KEY = config.llm_api_key
+        updated_fields.append("llm_api_key")
+
+    if config.llm_model is not None:
+        settings.LLM_MODEL = config.llm_model
+        updated_fields.append("llm_model")
+
+    if config.translation_group_interval is not None:
+        settings.TRANSLATION_GROUP_INTERVAL = config.translation_group_interval
+        updated_fields.append("translation_group_interval")
+
+    if config.translation_max_sentences is not None:
+        settings.TRANSLATION_MAX_SENTENCES_PER_GROUP = config.translation_max_sentences
+        updated_fields.append("translation_max_sentences")
 
     logger.info(f"配置已更新: {', '.join(updated_fields)}")
 
