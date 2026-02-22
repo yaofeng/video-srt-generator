@@ -105,31 +105,65 @@ async def detect_speech_activity(
                 batch_size_s=300  # 5 分钟批量处理
             )
 
+            logger.info(f"fsmn-vad 原始结果类型: {type(vad_result)}, 数量: {len(vad_result) if vad_result else 0}")
+
             # 解析结果
             segments = []
             if vad_result and len(vad_result) > 0:
                 # fsmn-vad 返回格式可能是字典或列表
                 result = vad_result[0]
+                logger.info(f"fsmn-vad 第一个结果类型: {type(result)}, 内容: {str(result)[:500]}")
 
-                # 处理不同的返回格式
-                if isinstance(result, dict):
-                    # 格式1: {'value': [{'start': ms, 'end': ms}, ...]}
-                    for segment in result.get('value', []):
-                        if isinstance(segment, dict):
-                            start_ms = segment.get('start', 0)
-                            end_ms = segment.get('end', 0)
-                            # 转换为秒
-                            segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                # 尝试不同的解析方式
+                # 方式1: result 是字典，包含 'sentence_info' 键
+                if isinstance(result, dict) and 'sentence_info' in result:
+                    sentence_info = result['sentence_info']
+                    logger.info(f"使用 sentence_info 格式解析，数量: {len(sentence_info) if sentence_info else 0}")
+                    if sentence_info:
+                        for item in sentence_info:
+                            if isinstance(item, dict):
+                                start_ms = item.get('start', 0)
+                                end_ms = item.get('end', 0)
+                                # 转换为秒
+                                segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                                logger.info(f"  片段: {start_ms}ms - {end_ms}ms")
+
+                # 方式2: result 是字典，包含 'value' 键
+                elif isinstance(result, dict) and 'value' in result:
+                    value = result['value']
+                    logger.info(f"使用 value 格式解析，数量: {len(value) if value else 0}")
+                    if value:
+                        for segment in value:
+                            if isinstance(segment, dict):
+                                start_ms = segment.get('start', 0)
+                                end_ms = segment.get('end', 0)
+                                segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                                logger.info(f"  片段: {start_ms}ms - {end_ms}ms")
+
+                # 方式3: result 是列表
                 elif isinstance(result, list):
-                    # 格式2: [{'start': ms, 'end': ms}, ...]
+                    logger.info(f"使用列表格式解析，数量: {len(result)}")
                     for segment in result:
                         if isinstance(segment, dict):
                             start_ms = segment.get('start', 0)
                             end_ms = segment.get('end', 0)
-                            # 转换为秒
                             segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                            logger.info(f"  片段: {start_ms}ms - {end_ms}ms")
 
-            logger.info(f"fsmn-vad 检测到 {len(segments)} 个语音片段")
+                # 方式4: result 可能直接就是时间戳列表
+                else:
+                    logger.warning(f"未知的 VAD 结果格式: {type(result)}")
+                    # 尝试将整个音频作为一个片段
+                    total_duration = len(waveform) / sample_rate
+                    segments = [(0.0, total_duration)]
+                    logger.info(f"将整个音频作为单一片段，时长: {total_duration:.2f}秒")
+
+            logger.info(f"fsmn-vad 解析后检测到 {len(segments)} 个语音片段")
+            for i, (s, e) in enumerate(segments[:10]):  # 只打印前10个
+                logger.info(f"  片段 {i+1}: {s:.2f}s - {e:.2f}s (时长: {e-s:.2f}s)")
+            if len(segments) > 10:
+                logger.info(f"  ... (还有 {len(segments) - 10} 个片段)")
+
             return segments
 
         except ImportError:
