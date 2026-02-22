@@ -430,7 +430,8 @@ def get_subtitles_by_task(db: Session, task_id: str, lang: Optional[str] = None)
         text = sub.text
         if lang and lang != 'original':
             field_name = f'translated_text_{lang}'
-            text = getattr(sub, field_name, None) or sub.text
+            translated = getattr(sub, field_name, None)
+            text = translated or sub.text
 
         subtitles_data.append({
             'id': sub.id,

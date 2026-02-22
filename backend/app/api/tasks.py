@@ -188,54 +188,8 @@ async def task_events(task_id: str):
     )
 
 
-@router.get("/{task_id}/subtitles")
-async def get_subtitles(
-    task_id: str,
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(50, ge=1, le=200, description="每页数量"),
-    db: Session = Depends(get_db)
-):
-    """获取字幕列表（分页）"""
-    # 先检查任务是否存在
-    task_result = db.execute(select(Task).where(Task.id == task_id))
-    task = task_result.scalar_one_or_none()
-
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-
-    # 查询字幕
-    result = db.execute(
-        select(Subtitle)
-        .where(Subtitle.task_id == task_id)
-        .order_by(Subtitle.index)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
-    subtitles = result.scalars().all()
-
-    # 获取总数
-    count_result = db.execute(
-        select(Subtitle).where(Subtitle.task_id == task_id)
-    )
-    total = len(count_result.scalars().all())
-
-    return {
-        "subtitles": [
-            {
-                "index": s.index,
-                "start_time": s.start_time,
-                "end_time": s.end_time,
-                "text": s.text
-            }
-            for s in subtitles
-        ],
-        "pagination": {
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "pages": (total + page_size - 1) // page_size
-        }
-    }
+# /subtitles 路由已移至 translation.py，支持语言切换参数
+# 保留此注释说明迁移历史
 
 
 @router.get("/{task_id}/subtitles/download")
