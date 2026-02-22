@@ -209,11 +209,18 @@ const formatEta = (seconds) => {
 
 // 格式化时间戳
 const formatTime = (timestamp) => {
+  if (!timestamp) return ''
+
   const date = new Date(timestamp)
+
+  // 检查日期是否有效
+  if (isNaN(date.getTime())) return ''
+
   return date.toLocaleTimeString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
+    hour12: false
   })
 }
 
@@ -283,12 +290,33 @@ const connectSSE = () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   addLog({
     level: 'info',
     message: `开始处理任务: ${taskId}`,
     timestamp: new Date().toISOString()
   })
+
+  // 先启动任务，然后连接SSE
+  try {
+    const response = await fetch(`${API_BASE}/api/tasks/${taskId}/start`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error('启动任务失败')
+    }
+    addLog({
+      level: 'info',
+      message: '任务已启动，开始处理...',
+      timestamp: new Date().toISOString()
+    })
+  } catch (error) {
+    addLog({
+      level: 'error',
+      message: `启动任务失败: ${error.message}`,
+      timestamp: new Date().toISOString()
+    })
+  }
 
   connectSSE()
 })

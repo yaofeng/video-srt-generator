@@ -126,11 +126,15 @@ else
     echo -e "${GREEN}后端服务: 已停止${NC}"
 fi
 
-# 检查 Node 进程（前端）
-NODE_COUNT=$(pgrep -f "vite.*video-srt-generator-frontend" 2>/dev/null | wc -l)
-if [ "$NODE_COUNT" -gt 0 ]; then
-    echo -e "${YELLOW}提示: 有 $NODE_COUNT 个前端进程在运行${NC}"
-    echo "如需停止前端，请按 Ctrl+C 或执行: pkill -f 'vite.*video-srt-generator-frontend'"
+# 检查并停止 Node 进程（前端）
+echo -e "\n${YELLOW}[4/4]${NC} 停止前端服务..."
+
+# 查找 vite 进程
+VITE_PIDS=$(ps aux | grep -E "vite" | grep -v grep | awk '{print $2}' || true)
+if [ -n "$VITE_PIDS" ]; then
+    echo "发现运行中的 vite 进程，正在停止..."
+    echo "$VITE_PIDS" | xargs -r kill -9 2>/dev/null || true
+    echo -e "${GREEN}前端服务已停止${NC}"
 else
     echo -e "${GREEN}前端服务: 未运行${NC}"
 fi

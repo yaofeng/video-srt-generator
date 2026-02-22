@@ -5,15 +5,16 @@ from fastapi import UploadFile, HTTPException
 from ..core.config import settings
 import uuid
 
+# 基于文件扩展名的验证（更可靠）
+ALLOWED_VIDEO_EXTENSIONS = [
+    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg"
+]
+
+# 允许的 MIME 类型（作为辅助验证）
 ALLOWED_VIDEO_TYPES = [
-    "video/mp4",
-    "video/avi",
-    "video/x-msvideo",
-    "video/mkv",
-    "video/x-matroska",
-    "video/quicktime",
-    "video/x-ms-wmv",
-    "video/webm"
+    "video/mp4", "video/avi", "video/x-msvideo", "video/mkv", "video/x-matroska",
+    "video/quicktime", "video/x-ms-wmv", "video/webm", "video/x-flv",
+    "application/octet-stream"  # 某些浏览器上传视频时使用此类型
 ]
 
 MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
@@ -29,16 +30,22 @@ async def save_upload_file(upload_file: UploadFile) -> tuple[str, Path]:
     Returns:
         tuple: (task_id, file_path)
     """
-    # 验证文件类型
-    if upload_file.content_type not in ALLOWED_VIDEO_TYPES:
+    # 验证文件扩展名（主要验证方式）
+    file_extension = Path(upload_file.filename).suffix.lower()
+    if not file_extension:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型: {upload_file.content_type}"
+            detail="文件缺少扩展名"
+        )
+
+    if file_extension not in ALLOWED_VIDEO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的视频格式: {file_extension}。支持的格式: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
         )
 
     # 生成任务 ID 和文件路径
     task_id = str(uuid.uuid4())
-    file_extension = Path(upload_file.filename).suffix
     file_path = settings.UPLOAD_DIR / f"{task_id}{file_extension}"
 
     # 保存文件

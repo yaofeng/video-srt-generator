@@ -108,12 +108,26 @@ async def detect_speech_activity(
             # 解析结果
             segments = []
             if vad_result and len(vad_result) > 0:
-                # fsmn-vad 返回格式: [{'value': [{'start': ms, 'end': ms}, ...]}]
-                for segment in vad_result[0].get('value', []):
-                    start_ms = segment.get('start', 0)
-                    end_ms = segment.get('end', 0)
-                    # 转换为秒
-                    segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                # fsmn-vad 返回格式可能是字典或列表
+                result = vad_result[0]
+
+                # 处理不同的返回格式
+                if isinstance(result, dict):
+                    # 格式1: {'value': [{'start': ms, 'end': ms}, ...]}
+                    for segment in result.get('value', []):
+                        if isinstance(segment, dict):
+                            start_ms = segment.get('start', 0)
+                            end_ms = segment.get('end', 0)
+                            # 转换为秒
+                            segments.append((start_ms / 1000.0, end_ms / 1000.0))
+                elif isinstance(result, list):
+                    # 格式2: [{'start': ms, 'end': ms}, ...]
+                    for segment in result:
+                        if isinstance(segment, dict):
+                            start_ms = segment.get('start', 0)
+                            end_ms = segment.get('end', 0)
+                            # 转换为秒
+                            segments.append((start_ms / 1000.0, end_ms / 1000.0))
 
             logger.info(f"fsmn-vad 检测到 {len(segments)} 个语音片段")
             return segments

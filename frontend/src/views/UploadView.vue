@@ -3,11 +3,19 @@
     <div class="container">
       <!-- 标题区域 -->
       <div class="header">
-        <h1 class="title">
-          <span class="title-icon">🎬</span>
-          视频字幕生成系统
-        </h1>
-        <p class="subtitle">上传视频，自动生成带时间戳的 SRT 字幕</p>
+        <div>
+          <h1 class="title">
+            <span class="title-icon">🎬</span>
+            视频字幕生成系统
+          </h1>
+          <p class="subtitle">上传视频，自动生成带时间戳的 SRT 字幕</p>
+        </div>
+        <button @click="goToTasks" class="history-button">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+            <path d="M9 3c-3.314 0-6 2.686-6 6s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6zm0 10c-2.209 0-4-1.791-4-4s1.791-4 4-4 4 1.791 4 4-1.791 4-4 4zm0-6c-1.105 0-2 .895-2 2s.895 2 2 2 2-.895 2-2-.895-2-2-2z"/>
+          </svg>
+          查看历史
+        </button>
       </div>
 
       <!-- 上传区域 -->
@@ -192,6 +200,10 @@ const handleFile = async (file) => {
     uploadProgress.value = 0
   }
 }
+
+const goToTasks = () => {
+  router.push('/tasks')
+}
 </script>
 
 <style scoped>
@@ -209,8 +221,15 @@ const handleFile = async (file) => {
 }
 
 .header {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 3rem;
+}
+
+.header > div:first-child {
+  text-align: center;
+  flex: 1;
 }
 
 .title {
@@ -232,6 +251,28 @@ const handleFile = async (file) => {
   font-size: 1.125rem;
   color: var(--text-secondary);
   margin: 0;
+}
+
+.history-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.history-button:hover {
+  border-color: var(--brand-blue);
+  background: rgba(59, 130, 246, 0.1);
+  transform: translateY(-2px);
 }
 
 .upload-zone {

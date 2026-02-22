@@ -69,10 +69,10 @@ async def process_task(
         }))
 
         # 1. 提取音频
-        await _log(db, task_id, 'info', '开始提取音频...')
+        _log(db, task_id, 'info', '开始提取音频...')
         audio_path = settings.OUTPUT_DIR / f"{task_id}_audio.wav"
         await extract_audio(Path(task.file_path), audio_path)
-        await _log(db, task_id, 'info', '音频提取完成')
+        _log(db, task_id, 'info', '音频提取完成')
 
         # 2. 获取视频时长
         duration = await get_video_duration(Path(task.file_path))
@@ -80,7 +80,7 @@ async def process_task(
         db.commit()
 
         # 3. VAD 切分
-        await _log(db, task_id, 'info', '开始语音活动检测...')
+        _log(db, task_id, 'info', '开始语音活动检测...')
         await progress_queue.put(ProgressEvent('progress', {
             'progress': 10,
             'step': '正在进行语音活动检测...'
@@ -94,7 +94,7 @@ async def process_task(
             max_duration=settings.SEGMENT_MAX_DURATION
         )
 
-        await _log(db, task_id, 'info', f'检测到 {len(segments)} 个音频片段')
+        _log(db, task_id, 'info', f'检测到 {len(segments)} 个音频片段')
 
         # 4. 保存片段信息到数据库
         for seg in segments:
@@ -109,7 +109,7 @@ async def process_task(
         db.commit()
 
         # 5. ASR 识别
-        await _log(db, task_id, 'info', '开始语音识别...')
+        _log(db, task_id, 'info', '开始语音识别...')
         all_segments = []
         failed_segments = []
 
@@ -142,14 +142,14 @@ async def process_task(
                         segment.status = 'completed'
                         db.commit()
 
-                    await _log(db, task_id, 'info', f'片段 {i+1} 识别完成')
+                    _log(db, task_id, 'info', f'片段 {i+1} 识别完成')
                     break
 
                 except Exception as e:
                     logger.error(f"片段 {i+1} 识别失败 (尝试 {attempt+1}/{settings.MAX_RETRY_ATTEMPTS}): {e}")
 
                     if attempt == settings.MAX_RETRY_ATTEMPTS - 1:
-                        await _log(db, task_id, 'error', f'片段 {i+1} 识别失败: {str(e)}')
+                        _log(db, task_id, 'error', f'片段 {i+1} 识别失败: {str(e)}')
                         if segment:
                             segment.status = 'failed'
                             segment.retry_count = settings.MAX_RETRY_ATTEMPTS
@@ -157,14 +157,14 @@ async def process_task(
                             db.commit()
                         failed_segments.append(i + 1)
                     else:
-                        await _log(db, task_id, 'warning', f'片段 {i+1} 重试 ({attempt+1}/{settings.MAX_RETRY_ATTEMPTS})')
+                        _log(db, task_id, 'warning', f'片段 {i+1} 重试 ({attempt+1}/{settings.MAX_RETRY_ATTEMPTS})')
                         if segment:
                             segment.retry_count = attempt + 1
                             db.commit()
                         await asyncio.sleep(settings.RETRY_BASE_DELAY * (2 ** attempt))
 
         if failed_segments:
-            await _log(db, task_id, 'warning', f'共有 {len(failed_segments)} 个片段识别失败: {failed_segments}')
+            _log(db, task_id, 'warning', f'共有 {len(failed_segments)} 个片段识别失败: {failed_segments}')
 
         # 6. 生成 SRT
         await progress_queue.put(ProgressEvent('progress', {
@@ -172,7 +172,7 @@ async def process_task(
             'step': '正在生成字幕...'
         }))
 
-        await _log(db, task_id, 'info', '开始生成 SRT 文件...')
+        _log(db, task_id, 'info', '开始生成 SRT 文件...')
         srt_filename = f"{Path(task.filename).stem}_字幕.srt"
         srt_path = settings.OUTPUT_DIR / srt_filename
 
@@ -184,8 +184,10 @@ async def process_task(
             merge_threshold=settings.SUBTITLE_MERGE_THRESHOLD
         )
 
-        # 7. 保存字幕到数据库
-        await _save_subtitles(db, task_id, all_segments)
+        # 7. 保存字幕到数据库（从生成的SRT文件中读取，确保一致性）
+        from .srt import parse_srt
+        srt_subtitles = parse_srt(srt_path)
+        await _save_subtitles(db, task_id, srt_subtitles)
 
         # 8. 更新任务状态
         task.status = 'completed'
@@ -200,7 +202,7 @@ async def process_task(
             'subtitle_count': len(all_segments)
         }))
 
-        await _log(db, task_id, 'info', '任务完成')
+        _log(db, task_id, 'info', '任务完成')
 
         return {
             'status': 'completed',
@@ -222,7 +224,7 @@ async def process_task(
             'error': f'处理失败: {str(e)}'
         }))
 
-        await _log(db, task_id, 'error', f'任务失败: {str(e)}')
+        _log(db, task_id, 'error', f'任务失败: {str(e)}')
 
         return {'status': 'error', 'message': str(e)}
 

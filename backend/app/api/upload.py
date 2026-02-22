@@ -1,4 +1,5 @@
 # backend/app/api/upload.py
+from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -9,7 +10,14 @@ from ..services.file_manager import save_upload_file
 router = APIRouter()
 
 
-@router.post("/upload")
+def _serialize_datetime(dt: datetime) -> str:
+    """序列化datetime对象，确保包含时区信息"""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+@router.post("/tasks/upload")
 async def upload_video(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
@@ -45,5 +53,5 @@ async def upload_video(
         "filename": file.filename,
         "file_size": task.file_size,
         "status": "pending",
-        "created_at": task.created_at.isoformat() if task.created_at else None
+        "created_at": _serialize_datetime(task.created_at) if task.created_at else None
     }

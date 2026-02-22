@@ -1,6 +1,7 @@
 # backend/app/api/tasks.py
 import asyncio
 from typing import Optional
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -19,6 +20,16 @@ router = APIRouter()
 
 # 存储任务进度队列
 _task_queues: dict[str, asyncio.Queue] = {}
+
+
+def _serialize_datetime(dt: Optional[datetime]) -> Optional[str]:
+    """序列化datetime对象，确保包含时区信息"""
+    if dt is None:
+        return None
+    # 如果没有时区信息，假设是UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 
 @router.get("/")
@@ -58,9 +69,9 @@ async def list_tasks(
                 "progress": t.progress,
                 "current_step": t.current_step,
                 "error_message": t.error_message,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-                "started_at": t.started_at.isoformat() if t.started_at else None,
-                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                "created_at": _serialize_datetime(t.created_at),
+                "started_at": _serialize_datetime(t.started_at),
+                "completed_at": _serialize_datetime(t.completed_at),
                 "duration_seconds": t.duration_seconds
             }
             for t in tasks
@@ -95,9 +106,9 @@ async def get_task(
         "progress": task.progress,
         "current_step": task.current_step,
         "error_message": task.error_message,
-        "created_at": task.created_at.isoformat() if task.created_at else None,
-        "started_at": task.started_at.isoformat() if task.started_at else None,
-        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "created_at": _serialize_datetime(task.created_at),
+        "started_at": _serialize_datetime(task.started_at),
+        "completed_at": _serialize_datetime(task.completed_at),
         "duration_seconds": task.duration_seconds
     }
 
@@ -245,6 +256,32 @@ async def download_subtitles(
         path=str(srt_path),
         filename=srt_filename,
         media_type='text/srt'
+    )
+
+
+@router.get("/{task_id}/video")
+async def get_video(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """获取视频文件用于预览"""
+    result = db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    video_path = Path(task.file_path)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+
+    # 获取文件扩展名对应的 MIME 类型
+    import mimetypes
+    media_type = mimetypes.guess_type(str(video_path))[0] or 'video/mp4'
+
+    return FileResponse(
+        path=str(video_path),
+        media_type=media_type
     )
 
 
