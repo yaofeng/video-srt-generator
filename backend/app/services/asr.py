@@ -151,8 +151,8 @@ async def transcribe_audio(
             text = result.text
 
             # Qwen3-ForcedAligner 返回的时间戳是 token/字符级别的
-            # 格式: ForcedAlignItem(text, start_time, end_time)
-            # 需要按标点符号合并成句子级别
+            # 注意：time_stamps 不包含标点符号，但 result.text 包含
+            # 需要将两者结合来生成带标点的句子级字幕
             segments = []
             if result.time_stamps is not None:
                 # 先转换字符级别时间戳
@@ -164,8 +164,12 @@ async def transcribe_audio(
                         'text': str(item.text)
                     })
 
-                # 按标点符号合并成句子
+                # 基于时间间隔和时长切分（time_stamps无标点）
                 segments = _merge_char_segments_to_sentences(char_segments)
+
+                # 为每个segment添加result.text中对应的标点
+                # 使用字符位置对齐的方式
+                segments = _add_punctuation_from_text(segments, text)
 
             return {
                 'text': text,
@@ -307,6 +311,93 @@ def _merge_char_segments_to_sentences(
             })
 
     return sentences
+
+
+def _add_punctuation_from_text(segments: List[Dict], full_text: str) -> List[Dict]:
+    """
+    为segments添加full_text中对应的标点符号
+
+    策略：
+    1. 追踪full_text中的字符位置
+    2. 找到每个segment对应的文本范围
+    3. 将该范围内的标点符号添加到segment末尾
+
+    Args:
+        segments: 不带标点的句子列表
+        full_text: 包含标点的完整文本
+
+    Returns:
+        List[Dict]: 带标点的句子列表
+    """
+    if not segments or not full_text:
+        return segments
+
+    # 构建segments的字符位置映射
+    # segments是按时间顺序的，full_text也是按时间顺序的
+    # 我们需要找到每个segment在full_text中的对应位置
+
+    # 移除full_text中的空格和换行（ASR可能添加的）
+    clean_text = full_text.replace(' ', '').replace('\n', '').replace('\t', '')
+
+    # 构建字符到时间的映射
+    char_to_time = []
+    char_index = 0
+
+    for seg in segments:
+        seg_text = seg['text'].replace(' ', '')
+        for char in seg_text:
+            char_to_time.append({
+                'char': char,
+                'start': seg['start'],
+                'end': seg['end'],
+                'seg_index': len([s for s in segments if s['start'] < seg['start']])
+            })
+            char_index += 1
+
+    # 重新构建带标点的segments
+    result_segments = []
+    clean_index = 0
+
+    for seg in segments:
+        seg_text = seg['text'].replace(' ', '')
+        seg_start = seg['start']
+        seg_end = seg['end']
+
+        # 在clean_text中找到当前segment对应的文本
+        # 并向后查找，直到遇到下一个segment的开始或句末标点
+        start_pos = clean_index
+        end_pos = start_pos + len(seg_text)
+
+        # 向后查找，包含标点符号，直到遇到句末标点或下一个segment的开始
+        while end_pos < len(clean_text):
+            char = clean_text[end_pos]
+            # 如果是句末标点，包含它并停止
+            if char in ['。', '！', '？', '.', '!', '?']:
+                end_pos += 1
+                break
+            # 如果是停顿标点，包含它并继续
+            elif char in ['，', ',', ';', '；', '、']:
+                end_pos += 1
+            # 检查是否超出当前segment的时间范围
+            # 简单处理：如果字符数明显超过segment的字符数，可能属于下一个segment
+            elif end_pos - start_pos > len(seg_text) * 1.5:
+                break
+            else:
+                end_pos += 1
+
+        # 提取带标点的文本
+        punctuated_text = clean_text[start_pos:end_pos]
+
+        # 更新下一个segment的起始位置
+        clean_index = end_pos
+
+        result_segments.append({
+            'start': seg_start,
+            'end': seg_end,
+            'text': punctuated_text
+        })
+
+    return result_segments
 
 
 async def batch_transcribe(
