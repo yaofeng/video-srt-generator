@@ -74,14 +74,18 @@ async def group_subtitles_by_interval(
 
 async def translate_with_llm(
     texts: List[str],
-    target_language: str
+    target_language: str,
+    context_before: Optional[List[str]] = None,
+    context_after: Optional[List[str]] = None
 ) -> List[str]:
     """
-    使用 LLM 翻译文本
+    使用 LLM 翻译文本，支持上下文信息以保持连贯性
 
     Args:
         texts: 待翻译文本列表
         target_language: 目标语言
+        context_before: 前面的文本（作为上下文），提供背景知识和连贯性
+        context_after: 后面的文本（作为上下文），提供背景知识
 
     Returns:
         翻译结果列表
@@ -100,7 +104,30 @@ async def translate_with_llm(
     # 构建提示词
     language_name = get_language_name(target_language)
 
-    prompt = f"""请将以下字幕翻译成{language_name}，要求：
+    # 构建上下文信息
+    context_parts = []
+    if context_before:
+        context_parts.append(f"前面的字幕（供参考上下文）:\n{chr(10).join(context_before)}")
+    if context_after:
+        context_parts.append(f"后面的字幕（供参考上下文）:\n{chr(10).join(context_after)}")
+
+    context_text = "\n\n".join(context_parts) if context_parts else ""
+
+    if context_text:
+        prompt = f"""请将以下字幕翻译成{language_name}，要求：
+1. 保持原文的语气和风格
+2. 准确传达原意，不要意译
+3. 注意上下文连贯性，确保术语翻译一致
+4. 只返回翻译结果，每行对应一句原文
+
+{context_text}
+
+当前需要翻译的字幕：
+{chr(10).join(texts)}
+
+翻译："""
+    else:
+        prompt = f"""请将以下字幕翻译成{language_name}，要求：
 1. 保持原文的语气和风格
 2. 准确传达原意，不要意译
 3. 只返回翻译结果，每行对应一句原文
@@ -209,7 +236,7 @@ async def process_translation_task(
                    f'字幕已分为 {len(groups)} 组 (间隔阈值: {settings.TRANSLATION_GROUP_INTERVAL}s, 最大句数: {settings.TRANSLATION_MAX_SENTENCES_PER_GROUP})',
                    progress_queue)
 
-        # 3. 逐组翻译
+        # 3. 逐组翻译（带上下文）
         translated_count = 0
         failed_groups = []
 
@@ -224,14 +251,37 @@ async def process_translation_task(
 
             texts = [s.text for s in group]
 
+            # 获取上下文
+            context_before = []
+            context_after = []
+
+            # 前面两组的内容（作为上下文）
+            if i > 0:
+                # 获取前一组的内容
+                context_before.extend([s.text for s in groups[i-1]])
+            if i > 1:
+                # 获取前两组的内容
+                context_before.extend([s.text for s in groups[i-2]])
+
+            # 后面一组的内容（作为上下文，可选）
+            if i < len(groups) - 1:
+                context_after.extend([s.text for s in groups[i+1]])
+
             # 重试逻辑
             for attempt in range(settings.TRANSLATION_RETRY_ATTEMPTS):
                 try:
                     await _log(db, translation_task_id, 'info',
-                              f'  第 {i+1} 组: 进行第 {attempt+1} 次翻译尝试 ({len(texts)} 句)',
+                              f'  第 {i+1} 组: 进行第 {attempt+1} 次翻译尝试 ({len(texts)} 句)'
+                              + (f', 前面有 {len(context_before)} 句上下文' if context_before else '')
+                              + (f', 后面有 {len(context_after)} 句上下文' if context_after else ''),
                               progress_queue)
 
-                    translations = await translate_with_llm(texts, target_language)
+                    translations = await translate_with_llm(
+                        texts,
+                        target_language,
+                        context_before=context_before if context_before else None,
+                        context_after=context_after if context_after else None
+                    )
 
                     # 保存翻译结果
                     field_name = f'translated_text_{target_language}'
