@@ -183,21 +183,23 @@ def _merge_char_segments_to_sentences(
     char_segments: List[Dict],
     target_duration: float = 5.0,
     max_duration: float = 8.0,
-    min_duration: float = 2.0
+    min_duration: float = 2.0,
+    pause_threshold: float = 0.5
 ) -> List[Dict]:
     """
     将字符级别的时间戳合并成句子级别
 
     策略：
-    1. Qwen3-ASR不生成标点符号，所以不依赖标点切分
-    2. 按目标时长（默认5秒）合并字符
-    3. 尝试在语义停顿处切分（语气词、连词等）
+    1. 基于token之间的时间间隔判断句子边界（停顿>0.5秒认为是新句子）
+    2. 结合时长控制（目标5秒，最大8秒，最小2秒）
+    3. 超过最大时长强制切分
 
     Args:
         char_segments: 字符级别的时间戳列表
         target_duration: 目标字幕时长（秒）
         max_duration: 最大字幕时长（秒）
         min_duration: 最小字幕时长（秒）
+        pause_threshold: 停顿阈值（秒），超过此值认为是句子边界
 
     Returns:
         List[Dict]: 句子级别的时间戳列表
@@ -205,74 +207,51 @@ def _merge_char_segments_to_sentences(
     if not char_segments:
         return []
 
-    # 语义停顿标记（用于优先切分）
-    pause_markers = {
-        '啊', '呢', '嘛', '吧', '哦', '嗯', '唉', '嘿', '哟',
-        '然后', '所以', '但是', '可是', '不过', '而且', '另外',
-        '首先', '其次', '最后', '总之', '因此', '于是'
-    }
-
     sentences = []
-    current_chars = []
-    last_pause_idx = -1  # 上一个语义停顿位置
+    current_chars = [char_segments[0]]  # 初始化，加入第一个字符
 
-    for i, seg in enumerate(char_segments):
-        char = seg['text']
-        current_chars.append(seg)
+    for i in range(1, len(char_segments)):
+        prev_seg = char_segments[i - 1]
+        curr_seg = char_segments[i]
+
+        # 计算相邻token之间的时间间隔
+        gap = curr_seg['start'] - prev_seg['end']
 
         # 计算当前累积时长
-        if len(current_chars) >= 2:
-            current_duration = current_chars[-1]['end'] - current_chars[0]['start']
+        current_duration = current_chars[-1]['end'] - current_chars[0]['start']
+
+        # 判断是否应该切分
+        should_split = False
+
+        # 1. 停顿切分：间隔超过阈值且时长足够
+        if gap > pause_threshold and current_duration >= min_duration:
+            should_split = True
+
+        # 2. 超时切分：超过最大时长
+        elif current_duration >= max_duration:
+            should_split = True
+
+        # 3. 目标时长+停顿：达到目标时长且有明显停顿
+        elif current_duration >= target_duration and gap > pause_threshold * 0.5:
+            should_split = True
+
+        if should_split:
+            # 保存当前句子
+            sentence_text = ''.join([c['text'] for c in current_chars])
+            sentence_start = current_chars[0]['start']
+            sentence_end = current_chars[-1]['end']
+
+            sentences.append({
+                'start': sentence_start,
+                'end': sentence_end,
+                'text': sentence_text
+            })
+
+            # 开始新句子
+            current_chars = [curr_seg]
         else:
-            current_duration = 0
-
-        # 检查当前字符是否是语义停顿
-        current_text = ''.join([c['text'] for c in current_chars])
-        is_pause = False
-
-        # 检查是否以停顿词结尾
-        for marker in pause_markers:
-            if current_text.endswith(marker):
-                is_pause = True
-                last_pause_idx = len(current_chars)
-                break
-
-        # 达到目标时长，尝试切分
-        if current_duration >= target_duration:
-            # 如果有语义停顿且时长合适，在停顿处切分
-            if is_pause and current_duration >= min_duration:
-                # 在停顿处切分
-                pause_chars = current_chars[:last_pause_idx]
-                remaining_chars = current_chars[last_pause_idx:]
-
-                if pause_chars:
-                    sentence_text = ''.join([c['text'] for c in pause_chars])
-                    sentence_start = pause_chars[0]['start']
-                    sentence_end = pause_chars[-1]['end']
-
-                    sentences.append({
-                        'start': sentence_start,
-                        'end': sentence_end,
-                        'text': sentence_text
-                    })
-
-                current_chars = remaining_chars
-                last_pause_idx = -1
-
-            # 超过最大时长，强制切分
-            elif current_duration >= max_duration:
-                sentence_text = ''.join([c['text'] for c in current_chars])
-                sentence_start = current_chars[0]['start']
-                sentence_end = current_chars[-1]['end']
-
-                sentences.append({
-                    'start': sentence_start,
-                    'end': sentence_end,
-                    'text': sentence_text
-                })
-
-                current_chars = []
-                last_pause_idx = -1
+            # 继续累积
+            current_chars.append(curr_seg)
 
     # 处理剩余字符
     if current_chars:
