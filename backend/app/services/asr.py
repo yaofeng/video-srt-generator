@@ -183,23 +183,22 @@ def _merge_char_segments_to_sentences(
     char_segments: List[Dict],
     target_duration: float = 5.0,
     max_duration: float = 8.0,
-    min_duration: float = 2.0,
-    pause_threshold: float = 0.5
+    min_duration: float = 2.0
 ) -> List[Dict]:
     """
     将字符级别的时间戳合并成句子级别
 
     策略：
-    1. 基于token之间的时间间隔判断句子边界（停顿>0.5秒认为是新句子）
-    2. 结合时长控制（目标5秒，最大8秒，最小2秒）
-    3. 超过最大时长强制切分
+    1. Qwen3-ASR返回的text包含标点符号，但time_stamps是字符级
+    2. 按标点符号优先切分（。，！？；；）
+    3. 结合时间间隔判断（停顿>0.5秒加强切分）
+    4. 结合时长控制（目标5秒，最大8秒，最小2秒）
 
     Args:
         char_segments: 字符级别的时间戳列表
         target_duration: 目标字幕时长（秒）
         max_duration: 最大字幕时长（秒）
         min_duration: 最小字幕时长（秒）
-        pause_threshold: 停顿阈值（秒），超过此值认为是句子边界
 
     Returns:
         List[Dict]: 句子级别的时间戳列表
@@ -207,12 +206,22 @@ def _merge_char_segments_to_sentences(
     if not char_segments:
         return []
 
+    # 标点符号集合 - 这些是模型实际生成的标点
+    sentence_end_punct = {'。', '！', '？', '.', '!', '?'}  # 句末标点
+    pause_punct = {'，', ',', ';', '；', '、'}  # 停顿标点
+
     sentences = []
-    current_chars = [char_segments[0]]  # 初始化，加入第一个字符
+    current_chars = [char_segments[0]]
+    last_pause_idx = -1  # 上一个停顿标点位置
 
     for i in range(1, len(char_segments)):
-        prev_seg = char_segments[i - 1]
         curr_seg = char_segments[i]
+        prev_seg = char_segments[i - 1]
+
+        # 如果current_chars为空（刚处理完句末标点），直接添加当前字符
+        if not current_chars:
+            current_chars.append(curr_seg)
+            continue
 
         # 计算相邻token之间的时间间隔
         gap = curr_seg['start'] - prev_seg['end']
@@ -223,16 +232,39 @@ def _merge_char_segments_to_sentences(
         # 判断是否应该切分
         should_split = False
 
-        # 1. 停顿切分：间隔超过阈值且时长足够
-        if gap > pause_threshold and current_duration >= min_duration:
+        # 1. 句末标点切分（最高优先级）
+        if curr_seg['text'] in sentence_end_punct:
+            # 标点作为当前句子的结尾
+            current_chars.append(curr_seg)
+            sentence_text = ''.join([c['text'] for c in current_chars])
+            sentence_start = current_chars[0]['start']
+            sentence_end = current_chars[-1]['end']
+
+            sentences.append({
+                'start': sentence_start,
+                'end': sentence_end,
+                'text': sentence_text
+            })
+
+            current_chars = []
+            last_pause_idx = -1
+            continue
+
+        # 2. 停顿标点
+        if curr_seg['text'] in pause_punct:
+            last_pause_idx = len(current_chars)
+            current_chars.append(curr_seg)
+
+            # 如果达到目标时长，且有停顿标点，考虑切分
+            if current_duration >= target_duration:
+                should_split = True
+
+        # 3. 时间停顿切分（语音停顿）
+        elif gap > 0.5 and current_duration >= min_duration:
             should_split = True
 
-        # 2. 超时切分：超过最大时长
+        # 4. 超时切分：超过最大时长
         elif current_duration >= max_duration:
-            should_split = True
-
-        # 3. 目标时长+停顿：达到目标时长且有明显停顿
-        elif current_duration >= target_duration and gap > pause_threshold * 0.5:
             should_split = True
 
         if should_split:
@@ -249,6 +281,7 @@ def _merge_char_segments_to_sentences(
 
             # 开始新句子
             current_chars = [curr_seg]
+            last_pause_idx = -1
         else:
             # 继续累积
             current_chars.append(curr_seg)
