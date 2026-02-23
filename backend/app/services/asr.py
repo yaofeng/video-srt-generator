@@ -61,7 +61,7 @@ class ASRModel:
                         device_map="cuda:0" if cls._is_cuda_available() else "cpu",
                     ),
                     max_inference_batch_size=32,
-                    max_new_tokens=256,
+                    max_new_tokens=1024,
                 )
                 logger.info("Qwen3-ASR 模型加载成功")
             except Exception as e:

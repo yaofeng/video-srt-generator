@@ -375,6 +375,9 @@ const filteredSubtitles = computed(() => {
   return result
 })
 
+// 当前激活的字幕索引
+const currentActiveIndex = ref(-1)
+
 // 判断字幕是否激活
 const isSubtitleActive = (subtitle) => {
   return currentTime.value >= subtitle.start_time && currentTime.value <= subtitle.end_time
@@ -384,6 +387,28 @@ const isSubtitleActive = (subtitle) => {
 const handleTimeUpdate = () => {
   if (videoPlayer.value) {
     currentTime.value = videoPlayer.value.currentTime
+
+    // 查找当前激活的字幕
+    const currentIndex = filteredSubtitles.value.findIndex(
+      s => currentTime.value >= s.start_time && currentTime.value <= s.end_time
+    )
+
+    // 如果激活的字幕发生变化，滚动到该字幕
+    if (currentIndex !== -1 && currentIndex !== currentActiveIndex.value && subtitlesList.value) {
+      currentActiveIndex.value = currentIndex
+      scrollToSubtitle(currentIndex)
+    }
+  }
+}
+
+// 滚动到指定字幕
+const scrollToSubtitle = (index) => {
+  if (!subtitlesList.value) return
+
+  const items = subtitlesList.value.querySelectorAll('.subtitle-item')
+  if (items[index]) {
+    // 滚动到可视区域最上方
+    items[index].scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
 
@@ -395,11 +420,8 @@ const seekToSubtitle = (subtitle) => {
 
     // 滚动到对应位置
     const index = filteredSubtitles.value.findIndex(s => s.id === subtitle.id)
-    if (index !== -1 && subtitlesList.value) {
-      const items = subtitlesList.value.querySelectorAll('.subtitle-item')
-      if (items[index]) {
-        items[index].scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
+    if (index !== -1) {
+      scrollToSubtitle(index)
     }
   }
 }
