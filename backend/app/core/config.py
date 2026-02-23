@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # 音频切分配置
     SEGMENT_MIN_DURATION: int = 30
-    SEGMENT_MAX_DURATION: int = 120
+    SEGMENT_MAX_DURATION: int = 80
     VAD_SILENCE_THRESHOLD: float = 0.5
 
     # 字幕生成配置

@@ -156,8 +156,8 @@ results = model.transcribe(
 ### 配置参数
 
 在 `backend/app/core/config.py` 中：
-- `SEGMENT_MIN_DURATION`: 60 秒（1 分钟）
-- `SEGMENT_MAX_DURATION`: 180 秒（3 分钟）
+- `SEGMENT_MIN_DURATION`: 30 秒
+- `SEGMENT_MAX_DURATION`: 80 秒
 - `SUBTITLE_MIN_DURATION`: 2.0 秒
 - `SUBTITLE_MAX_DURATION`: 8.0 秒
 - `SUBTITLE_MERGE_THRESHOLD`: 1.5 秒（合并短字幕阈值）

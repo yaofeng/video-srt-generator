@@ -192,8 +192,8 @@ async def detect_speech_activity(
 async def split_audio_by_vad(
     audio_path: Path,
     output_dir: Path,
-    min_duration: int = 180,
-    max_duration: int = 300,
+    min_duration: int = 30,
+    max_duration: int = 80,
     silence_threshold: float = 0.5
 ) -> List[Dict]:
     """
@@ -203,8 +203,8 @@ async def split_audio_by_vad(
     Args:
         audio_path: 音频文件路径
         output_dir: 输出目录
-        min_duration: 最小片段时长（秒），默认 180 秒（3 分钟）
-        max_duration: 最大片段时长（秒），默认 300 秒（5 分钟）
+        min_duration: 最小片段时长（秒），默认 30 秒
+        max_duration: 最大片段时长（秒），默认 80 秒
         silence_threshold: 静音阈值（秒），默认 0.5 秒
 
     Returns:
@@ -248,12 +248,12 @@ async def split_audio_by_vad(
 
 def _merge_segments_to_duration(
     speech_segments: List[Tuple[float, float]],
-    min_duration: int = 180,
-    max_duration: int = 300
+    min_duration: int = 30,
+    max_duration: int = 80
 ) -> List[Dict]:
     """
     将语音片段合并为目标时长（3-5分钟）
-    策略：以 5 分钟（max_duration）为单位，找出最大间隔进行切分
+    策略：以 80 秒（max_duration）为单位，找出最大间隔进行切分
 
     Args:
         speech_segments: 语音片段列表 [(start, end), ...]
