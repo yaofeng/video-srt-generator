@@ -41,33 +41,43 @@ async def save_upload_file(upload_file: UploadFile) -> tuple[str, Path]:
     if file_extension not in ALLOWED_VIDEO_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的视频格式: {file_extension}。支持的格式: {', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
+            detail=f"不支持的视频格式：{file_extension}。支持的格式：{', '.join(ALLOWED_VIDEO_EXTENSIONS)}"
         )
 
     # 生成任务 ID 和文件路径
     task_id = str(uuid.uuid4())
     file_path = settings.UPLOAD_DIR / f"{task_id}{file_extension}"
 
-    # 保存文件
+    # 保存文件 - 使用流式读写避免大文件内存问题
     try:
-        content = await upload_file.read()
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=400,
-                detail=f"文件过大，最大支持 {MAX_FILE_SIZE // (1024**3)}GB"
-            )
-
         # 确保上传目录存在
         settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-        # 写入文件
+        # 流式写入：边读边写，避免大文件一次性加载到内存
         with open(file_path, 'wb') as f:
-            f.write(content)
+            # 每次读取 1MB 块
+            chunk_size = 1024 * 1024  # 1MB
+            total_bytes = 0
+            while True:
+                chunk = await upload_file.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                total_bytes += len(chunk)
+                # 实时检查文件大小
+                if total_bytes > MAX_FILE_SIZE:
+                    os.remove(file_path)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"文件过大，最大支持 {MAX_FILE_SIZE // (1024**3)}GB"
+                    )
 
+    except HTTPException:
+        raise
     except Exception as e:
         if file_path.exists():
             os.remove(file_path)
-        raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"文件保存失败：{str(e)}")
 
     return task_id, file_path
 
