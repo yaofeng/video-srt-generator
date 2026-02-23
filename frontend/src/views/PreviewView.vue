@@ -27,7 +27,7 @@
 
           <!-- 关键字按钮 -->
           <button
-            @click="showKeywordsModal = true"
+            @click="openKeywordsModal"
             class="keywords-button"
             :class="{ 'has-keywords': task.keywords }"
           >
@@ -678,10 +678,13 @@ const goBack = () => {
 }
 
 // 关键字相关函数
+const openKeywordsModal = async () => {
+  await loadKeywords()
+  showKeywordsModal.value = true
+}
+
 const closeKeywordsModal = () => {
   showKeywordsModal.value = false
-  // 重新加载任务数据以获取最新的关键字
-  loadKeywords()
 }
 
 const loadKeywords = async () => {
