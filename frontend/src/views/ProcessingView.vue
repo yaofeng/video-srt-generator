@@ -89,15 +89,31 @@ const connectSSE = () => {
 onMounted(async () => {
   progressWindow.value?.addLog(`开始处理任务：${taskId}`, 'info')
 
-  // 先启动任务，然后连接 SSE
+  // 先获取任务状态
   try {
-    const response = await fetch(`${API_BASE}/api/tasks/${taskId}/start`, {
-      method: 'POST'
-    })
-    if (!response.ok) {
-      throw new Error('启动任务失败')
+    const taskResponse = await fetch(`${API_BASE}/api/tasks/${taskId}`)
+    if (taskResponse.ok) {
+      const task = await taskResponse.json()
+
+      // 如果任务已经是 processing 或 completed 状态，不需要再次启动
+      if (task.status === 'processing' || task.status === 'completed') {
+        progressWindow.value?.addLog(`任务状态：${task.status}，直接连接监控...`, 'info')
+      } else if (task.status === 'pending') {
+        //  pending 状态需要启动任务
+        const response = await fetch(`${API_BASE}/api/tasks/${taskId}/start`, {
+          method: 'POST'
+        })
+        if (!response.ok) {
+          throw new Error('启动任务失败')
+        }
+        progressWindow.value?.addLog('任务已启动，开始处理...', 'info')
+      } else if (task.status === 'failed') {
+        progressWindow.value?.addLog(`任务已失败：${task.error_message || '未知错误'}`, 'error')
+        return
+      }
+    } else {
+      throw new Error('获取任务状态失败')
     }
-    progressWindow.value?.addLog('任务已启动，开始处理...', 'info')
   } catch (error) {
     progressWindow.value?.addLog(`启动任务失败：${error.message}`, 'error')
   }

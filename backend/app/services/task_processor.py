@@ -109,6 +109,12 @@ async def process_task(
 
         # 4. 保存片段信息到数据库
         await _log(db, task_id, 'info', '保存片段信息到数据库...', progress_queue)
+
+        # 先清理已存在的片段记录（防止重复创建）
+        from sqlalchemy import delete
+        db.execute(delete(Segment).where(Segment.task_id == task_id))
+        db.commit()
+
         for seg in segments:
             segment = Segment(
                 task_id=task_id,
@@ -142,7 +148,7 @@ async def process_task(
                     Segment.index == seg_info['index']
                 )
             )
-            segment = result.scalar_one_or_none()
+            segment = result.scalars().first()
 
             if segment:
                 segment.status = 'processing'

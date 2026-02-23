@@ -22,4 +22,5 @@ class Segment(Base):
 
     __table_args__ = (
         Index('ix_segment_task_status', 'task_id', 'status'),
+        Index('ix_segment_task_index', 'task_id', 'index', unique=True),
     )
