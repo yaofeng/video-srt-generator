@@ -34,6 +34,63 @@ def _serialize_datetime(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat()
 
 
+# ==================== 视频库相关 API ====================
+
+
+@router.get("/library")
+async def get_video_library(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取视频库列表（所有视频，无论是否处理）
+    """
+    query = select(Task).order_by(Task.created_at.desc())
+
+    # 计算总数
+    count_result = db.execute(select(Task))
+    total = len(count_result.scalars().all())
+
+    # 分页
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = db.execute(query)
+    tasks = result.scalars().all()
+
+    videos = []
+    for task in tasks:
+        video_info = {
+            "id": task.id,
+            "filename": task.filename,
+            "status": task.status,
+            "progress": task.progress,
+            "current_step": task.current_step,
+            "created_at": _serialize_datetime(task.created_at),
+            "file_size": task.file_size,
+            "duration_seconds": task.duration_seconds,
+            "thumbnail_url": f"/api/tasks/{task.id}/thumbnail",
+            "video_url": f"/api/tasks/{task.id}/video",
+        }
+
+        # 尝试获取视频元信息
+        if task.file_path and Path(task.file_path).exists():
+            video_meta = get_video_info(Path(task.file_path))
+            if video_meta:
+                video_info["video_info"] = video_meta
+
+        videos.append(video_info)
+
+    return {
+        "videos": videos,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "pages": (total + page_size - 1) // page_size
+        }
+    }
+
+
 @router.get("/")
 async def list_tasks(
     status: Optional[str] = Query(None, description="按状态过滤任务"),
@@ -494,63 +551,6 @@ async def reprocess_task(
     asyncio.create_task(run_task_with_db())
 
     return {"message": "开始重新识别", "task_id": task_id}
-
-
-# ==================== 视频库相关 API ====================
-
-
-@router.get("/library")
-async def get_video_library(
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
-    db: Session = Depends(get_db)
-):
-    """
-    获取视频库列表（所有视频，无论是否处理）
-    """
-    query = select(Task).order_by(Task.created_at.desc())
-
-    # 计算总数
-    count_result = db.execute(select(Task))
-    total = len(count_result.scalars().all())
-
-    # 分页
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    result = db.execute(query)
-    tasks = result.scalars().all()
-
-    videos = []
-    for task in tasks:
-        video_info = {
-            "id": task.id,
-            "filename": task.filename,
-            "status": task.status,
-            "progress": task.progress,
-            "current_step": task.current_step,
-            "created_at": _serialize_datetime(task.created_at),
-            "file_size": task.file_size,
-            "duration_seconds": task.duration_seconds,
-            "thumbnail_url": f"/api/tasks/{task.id}/thumbnail",
-            "video_url": f"/api/tasks/{task.id}/video",
-        }
-
-        # 尝试获取视频元信息
-        if task.file_path and Path(task.file_path).exists():
-            video_meta = get_video_info(Path(task.file_path))
-            if video_meta:
-                video_info["video_info"] = video_meta
-
-        videos.append(video_info)
-
-    return {
-        "videos": videos,
-        "pagination": {
-            "page": page,
-            "page_size": page_size,
-            "total": total,
-            "pages": (total + page_size - 1) // page_size
-        }
-    }
 
 
 @router.get("/{task_id}/thumbnail")
