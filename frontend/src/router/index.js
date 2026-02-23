@@ -3,7 +3,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   {
     path: '/',
-    redirect: '/upload'
+    redirect: '/library'
+  },
+  {
+    path: '/library',
+    name: 'Library',
+    component: () => import('../views/LibraryView.vue')
   },
   {
     path: '/upload',

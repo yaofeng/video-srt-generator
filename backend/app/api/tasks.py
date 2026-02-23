@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
 from pathlib import Path
+import os
 
 from .deps import get_db
 from ..models.task import Task
@@ -15,6 +16,7 @@ from ..models.segment import Segment
 from ..models.log import Log
 from ..services.task_processor import process_task, ProgressEvent, cleanup_task_files
 from ..core.config import settings
+from ..services.video import generate_thumbnail, get_video_info
 
 router = APIRouter()
 
@@ -492,3 +494,208 @@ async def reprocess_task(
     asyncio.create_task(run_task_with_db())
 
     return {"message": "开始重新识别", "task_id": task_id}
+
+
+# ==================== 视频库相关 API ====================
+
+
+@router.get("/library")
+async def get_video_library(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取视频库列表（所有视频，无论是否处理）
+    """
+    query = select(Task).order_by(Task.created_at.desc())
+
+    # 计算总数
+    count_result = db.execute(select(Task))
+    total = len(count_result.scalars().all())
+
+    # 分页
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = db.execute(query)
+    tasks = result.scalars().all()
+
+    videos = []
+    for task in tasks:
+        video_info = {
+            "id": task.id,
+            "filename": task.filename,
+            "status": task.status,
+            "progress": task.progress,
+            "current_step": task.current_step,
+            "created_at": _serialize_datetime(task.created_at),
+            "file_size": task.file_size,
+            "duration_seconds": task.duration_seconds,
+            "thumbnail_url": f"/api/tasks/{task.id}/thumbnail",
+            "video_url": f"/api/tasks/{task.id}/video",
+        }
+
+        # 尝试获取视频元信息
+        if task.file_path and Path(task.file_path).exists():
+            video_meta = get_video_info(Path(task.file_path))
+            if video_meta:
+                video_info["video_info"] = video_meta
+
+        videos.append(video_info)
+
+    return {
+        "videos": videos,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "pages": (total + page_size - 1) // page_size
+        }
+    }
+
+
+@router.get("/{task_id}/thumbnail")
+async def get_video_thumbnail_api(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """获取视频缩略图（从视频帧或 cover 生成）"""
+    result = db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    video_path = Path(task.file_path)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+
+    # 生成缩略图路径
+    thumbnail_dir = settings.OUTPUT_DIR / "thumbnails"
+    thumbnail_dir.mkdir(parents=True, exist_ok=True)
+    thumbnail_path = thumbnail_dir / f"{task_id}.jpg"
+
+    # 如果缩略图不存在，生成它
+    if not thumbnail_path.exists():
+        generate_thumbnail(video_path, thumbnail_path)
+
+    # 返回缩略图
+    if thumbnail_path.exists():
+        return FileResponse(
+            path=str(thumbnail_path),
+            media_type='image/jpeg',
+            headers={
+                'Cache-Control': 'public, max-age=86400',  # 缓存 1 天
+            }
+        )
+    else:
+        raise HTTPException(status_code=404, detail="缩略图生成失败")
+
+
+@router.post("/{task_id}/generate-subtitles")
+async def generate_subtitles(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """为已上传的视频生成字幕"""
+    result = db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    # 检查视频文件是否存在
+    video_path = Path(task.file_path)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+
+    # 如果任务已完成，先删除旧的字幕
+    if task.status == "completed":
+        # 删除旧字幕记录
+        db.execute(delete(Subtitle).where(Subtitle.task_id == task_id))
+        db.commit()
+
+        # 删除旧 SRT 文件
+        srt_filename = f"{Path(task.filename).stem}_字幕.srt"
+        srt_path = settings.OUTPUT_DIR / srt_filename
+        if srt_path.exists():
+            srt_path.unlink()
+
+    # 重置任务状态为 pending
+    task.status = "pending"
+    task.error_message = None
+    task.progress = 0
+    task.current_step = None
+    task.started_at = None
+    task.completed_at = None
+    task.duration_seconds = None
+    db.commit()
+
+    # 创建进度队列
+    _task_queues[task_id] = asyncio.Queue()
+
+    # 启动后台任务
+    async def run_task_with_db():
+        from ..core.database import SessionLocal
+        task_db = SessionLocal()
+        try:
+            await process_task(task_id, task_db, _task_queues[task_id])
+        finally:
+            task_db.close()
+
+    asyncio.create_task(run_task_with_db())
+
+    return {"message": "开始生成字幕", "task_id": task_id}
+
+
+@router.get("/{task_id}/keywords")
+async def get_keywords(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """获取任务的关键字设置"""
+    result = db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    return {
+        "keywords": task.keywords or ""
+    }
+
+
+@router.post("/{task_id}/keywords")
+async def set_keywords(
+    task_id: str,
+    keywords: str,
+    db: Session = Depends(get_db)
+):
+    """设置任务的关键字，用于 ASR 识别时的上下文"""
+    result = db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    task.keywords = keywords
+    db.commit()
+
+    return {"message": "关键字已保存", "keywords": keywords}
+
+
+@router.delete("/{task_id}/keywords")
+async def delete_keywords(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """删除任务的关键字设置"""
+    result = db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    task.keywords = None
+    db.commit()
+
+    return {"message": "关键字已删除"}

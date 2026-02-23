@@ -21,6 +21,7 @@ class Task(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
+    keywords = Column(Text, nullable=True)  # 用于 ASR 识别的关键字/上下文
 
     subtitles = relationship("Subtitle", back_populates="task", cascade="all, delete-orphan")
     segments = relationship("Segment", back_populates="task", cascade="all, delete-orphan")

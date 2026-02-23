@@ -10,9 +10,33 @@
           返回
         </button>
 
-        <h1 class="title">字幕预览</h1>
+        <h1 class="title">视频预览</h1>
 
         <div class="header-actions">
+          <!-- 生成字幕按钮 -->
+          <button
+            v-if="task.status === 'pending' || task.status === 'failed'"
+            @click="generateSubtitles"
+            class="generate-button"
+          >
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"/>
+            </svg>
+            生成字幕
+          </button>
+
+          <!-- 关键字按钮 -->
+          <button
+            @click="showKeywordsModal = true"
+            class="keywords-button"
+            :class="{ 'has-keywords': task.keywords }"
+          >
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 2a6 6 0 100 12 6 6 0 000-12zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z"/>
+            </svg>
+            关键字
+          </button>
+
           <!-- 翻译按钮 -->
           <button
             v-if="!hasTranslation && !translationInProgress"
@@ -120,6 +144,40 @@
           </div>
           <p class="progress-text">{{ translationStep }}</p>
           <p class="progress-percent">{{ translationProgress }}%</p>
+        </div>
+      </div>
+
+      <!-- 关键字模态框 -->
+      <div v-if="showKeywordsModal" class="modal-overlay" @click="closeKeywordsModal">
+        <div class="modal-content keywords-modal" @click.stop>
+          <h2>设置关键字</h2>
+          <p class="hint">关键字将作为上下文传递给 Qwen3-ASR 模型，帮助提高识别准确度。</p>
+          <div class="keywords-input-container">
+            <textarea
+              v-model="keywordsInput"
+              placeholder="请输入关键字，多个关键字用逗号或空格分隔，例如：医疗，法律，金融..."
+              rows="6"
+              class="keywords-textarea"
+            ></textarea>
+            <div class="keywords-tips">
+              <p>提示：</p>
+              <ul>
+                <li>适用于包含专业术语的视频</li>
+                <li>可以输入人名、地名等专有名词</li>
+                <li>可以输入视频主题相关的关键词</li>
+              </ul>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button @click="deleteKeywords" class="delete-btn" v-if="task.keywords">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M11 1.5v1h3.5a.5.5 0 010 1h-.538l-.853 10.66A2 2 0 0111.115 16h-6.23a2 2 0 01-1.994-1.84L2.038 3.5H1.5a.5.5 0 010-1H5v-1A1.5 1.5 0 016.5 0h3A1.5 1.5 0 0111 1.5zm-5 3v10a1 1 0 001 1h3a1 1 0 001-1v-10a1 1 0 00-1-1h-3a1 1 0 00-1 1zm2 0V2h1v2.5h-1z"/>
+              </svg>
+              清空
+            </button>
+            <button @click="closeKeywordsModal" class="cancel-btn">取消</button>
+            <button @click="saveKeywords" class="confirm-btn">保存</button>
+          </div>
         </div>
       </div>
 
@@ -243,6 +301,10 @@ const translationInProgress = ref(false)
 const translationProgress = ref(0)
 const translationStep = ref('')
 const retranslateLanguage = ref(null)  // 重新翻译的目标语言
+
+// 关键字相关状态
+const showKeywordsModal = ref(false)
+const keywordsInput = ref('')
 
 // 支持的语言（从配置 API 动态获取）
 const supportedLanguages = ref([])
@@ -586,9 +648,88 @@ const loadTaskData = async () => {
       loadSubtitles(),
       loadTranslations()
     ])
+
+    // 加载关键字
+    if (task.value.keywords) {
+      keywordsInput.value = task.value.keywords
+    }
   } catch (error) {
     console.error('加载数据失败:', error)
     alert('加载数据失败，请重试')
+  }
+}
+
+// 生成字幕
+const generateSubtitles = async () => {
+  if (!confirm('确定要为此视频生成字幕吗？')) return
+
+  try {
+    const response = await axios.post(`${API_BASE}/api/tasks/${taskId}/generate-subtitles`)
+    if (response.ok) {
+      router.push(`/processing/${taskId}`)
+    } else {
+      const error = response.data
+      alert(error.detail || '生成字幕失败')
+    }
+  } catch (error) {
+    console.error('生成字幕失败:', error)
+    alert('生成字幕失败，请重试')
+  }
+}
+
+// 返回视频库
+const goBack = () => {
+  router.push('/library')
+}
+
+// 关键字相关函数
+const closeKeywordsModal = () => {
+  showKeywordsModal.value = false
+  // 重新加载任务数据以获取最新的关键字
+  loadKeywords()
+}
+
+const loadKeywords = async () => {
+  try {
+    const response = await axios.get(`${API_BASE}/api/tasks/${taskId}/keywords`)
+    keywordsInput.value = response.data.keywords || ''
+  } catch (error) {
+    console.error('加载关键字失败:', error)
+  }
+}
+
+const saveKeywords = async () => {
+  try {
+    const response = await axios.post(
+      `${API_BASE}/api/tasks/${taskId}/keywords`,
+      keywordsInput.value,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    )
+    if (response.ok) {
+      task.value.keywords = keywordsInput.value
+      showKeywordsModal.value = false
+      alert('关键字已保存')
+    }
+  } catch (error) {
+    console.error('保存关键字失败:', error)
+    alert('保存关键字失败，请重试')
+  }
+}
+
+const deleteKeywords = async () => {
+  if (!confirm('确定要清空关键字吗？')) return
+
+  try {
+    const response = await axios.delete(`${API_BASE}/api/tasks/${taskId}/keywords`)
+    if (response.ok) {
+      keywordsInput.value = ''
+      task.value.keywords = null
+      showKeywordsModal.value = false
+      alert('关键字已清空')
+    }
+  } catch (error) {
+    console.error('删除关键字失败:', error)
+    alert('删除关键字失败，请重试')
   }
 }
 
@@ -1030,6 +1171,51 @@ onUnmounted(() => {
   gap: 0.75rem;
 }
 
+.generate-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.813rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.generate-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(34, 197, 94, 0.3);
+}
+
+.keywords-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.813rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.keywords-button.has-keywords {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.5);
+}
+
+.keywords-button:hover {
+  background: rgba(168, 85, 247, 0.2);
+  transform: translateY(-2px);
+}
+
 .translate-button {
   display: flex;
   align-items: center;
@@ -1360,5 +1546,99 @@ onUnmounted(() => {
   font-weight: 700;
   color: var(--brand-cyan);
   margin: 0;
+}
+
+/* 关键字模态框样式 */
+.keywords-modal h2 {
+  margin-bottom: 1rem;
+}
+
+.keywords-modal .hint {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.keywords-input-container {
+  margin-bottom: 1.5rem;
+}
+
+.keywords-textarea {
+  width: 100%;
+  padding: 1rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.938rem;
+  font-family: inherit;
+  resize: vertical;
+  transition: all 0.3s ease;
+}
+
+.keywords-textarea:focus {
+  outline: none;
+  border-color: var(--brand-blue);
+  background: rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.keywords-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.keywords-tips {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(168, 85, 247, 0.05);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 0.5rem;
+}
+
+.keywords-tips p {
+  font-size: 0.813rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 0.5rem 0;
+}
+
+.keywords-tips ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.keywords-tips li {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.375rem;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.modal-actions .delete-btn {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--brand-red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.modal-actions .delete-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 </style>

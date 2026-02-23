@@ -1,7 +1,7 @@
 # backend/app/api/upload.py
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 
 from .deps import get_db
@@ -21,7 +21,6 @@ def _serialize_datetime(dt: datetime) -> str:
 @router.post("/tasks/upload")
 async def upload_video(
     file: UploadFile = File(...),
-    auto_translate: Optional[bool] = Form(False),
     db: Session = Depends(get_db)
 ):
     """
@@ -29,7 +28,6 @@ async def upload_video(
 
     Args:
         file: 上传的视频文件
-        auto_translate: 是否自动翻译
         db: 数据库会话
 
     Returns:
@@ -56,6 +54,5 @@ async def upload_video(
         "filename": file.filename,
         "file_size": task.file_size,
         "status": "pending",
-        "auto_translate": auto_translate,
         "created_at": _serialize_datetime(task.created_at) if task.created_at else None
     }
