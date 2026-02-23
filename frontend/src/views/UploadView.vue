@@ -70,7 +70,7 @@
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: uploadProgress + '%' }"></div>
           </div>
-          <p class="progress-text">{{ uploadProgress }}%</p>
+          <p class="progress-text">{{ uploadProgress }}% ({{ formatBytes(uploadedSize) }} / {{ formatBytes(totalSize) }})</p>
         </div>
       </div>
 
@@ -116,9 +116,20 @@ const fileInput = ref(null)
 const isDragOver = ref(false)
 const isUploading = ref(false)
 const uploadProgress = ref(0)
+const uploadedSize = ref(0)
+const totalSize = ref(0)
 const errorMessage = ref('')
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+
+// 格式化文件大小
+const formatBytes = (bytes) => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Number.parseFloat((bytes / k ** i).toFixed(2)) + ' ' + sizes[i]
+}
 
 // 处理拖拽进入
 const handleDragEnter = (e) => {
@@ -175,6 +186,8 @@ const handleFile = async (file) => {
   try {
     isUploading.value = true
     uploadProgress.value = 0
+    uploadedSize.value = 0
+    totalSize.value = file.size
 
     const formData = new FormData()
     formData.append('file', file)
@@ -186,6 +199,8 @@ const handleFile = async (file) => {
       onUploadProgress: (progressEvent) => {
         const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
         uploadProgress.value = progress
+        uploadedSize.value = progressEvent.loaded
+        totalSize.value = progressEvent.total
       }
     })
 
