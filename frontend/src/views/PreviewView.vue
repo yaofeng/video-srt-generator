@@ -456,11 +456,6 @@ const clearFilters = () => {
   timeFilterEnd.value = ''
 }
 
-// 返回上传页面
-const goBack = () => {
-  router.push('/upload')
-}
-
 // 下载 SRT 文件
 const downloadSrt = async (lang = null) => {
   try {

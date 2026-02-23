@@ -25,6 +25,7 @@ node_modules/
 .env.local
 
 # 后端生成的文件
+backend/static/
 backend/uploads/
 backend/outputs/
 backend/logs/

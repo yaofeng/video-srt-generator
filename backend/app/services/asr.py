@@ -88,7 +88,8 @@ async def transcribe_audio(
     language: str = "zh",
     task: str = "transcribe",
     chunk_length_s: int = 30,
-    save_raw_result: bool = False
+    save_raw_result: bool = False,
+    context: Optional[str] = None
 ) -> Dict:
     """
     使用 Qwen3-ASR 进行语音识别
@@ -101,6 +102,7 @@ async def transcribe_audio(
         task: 任务类型 (transcribe/translate) - 保留兼容性
         chunk_length_s: 分块长度（秒）- 保留兼容性
         save_raw_result: 是否保存原始 ASR 结果为 JSON 文件
+        context: 上下文提示字符串，用于提供 ASR 识别时的背景信息（如专有名词、术语等）
 
     Returns:
         Dict: {
@@ -139,6 +141,7 @@ async def transcribe_audio(
                 audio=str(audio_path),
                 language=normalized_language,
                 return_time_stamps=True,
+                context=context if context else "",
             )
 
             if not results or len(results) == 0:

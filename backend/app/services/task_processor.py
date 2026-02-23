@@ -69,6 +69,11 @@ async def process_task(
         }))
         await _log(db, task_id, 'info', '任务开始处理', progress_queue)
 
+        # 获取任务的 keywords（用于 ASR 上下文）
+        keywords = task.keywords or ""
+        if keywords:
+            await _log(db, task_id, 'info', f'ASR 上下文关键字：{keywords}', progress_queue)
+
         # 1. 提取音频
         await _log(db, task_id, 'info', f'开始从视频提取音频: {task.filename}', progress_queue)
         await _log(db, task_id, 'info', f'视频文件路径: {task.file_path}', progress_queue)
@@ -149,7 +154,8 @@ async def process_task(
                     await _log(db, task_id, 'info', f'  片段 {i+1}: 进行第 {attempt+1} 次识别尝试...', progress_queue)
                     asr_result = await transcribe_audio(
                         Path(seg_info['audio_path']),
-                        save_raw_result=True  # 保存原始 ASR 结果为 JSON
+                        save_raw_result=True,  # 保存原始 ASR 结果为 JSON
+                        context=keywords  # 传递 ASR 上下文
                     )
                     segments_count = len(asr_result.get('segments', []))
 
