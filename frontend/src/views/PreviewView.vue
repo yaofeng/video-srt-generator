@@ -697,8 +697,7 @@ const saveKeywords = async () => {
   try {
     const response = await axios.post(
       `${API_BASE}/api/tasks/${taskId}/keywords`,
-      keywordsInput.value,
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      { keywords: keywordsInput.value }
     )
     if (response.ok) {
       task.value.keywords = keywordsInput.value

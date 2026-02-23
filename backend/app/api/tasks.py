@@ -667,7 +667,7 @@ async def get_keywords(
 @router.post("/{task_id}/keywords")
 async def set_keywords(
     task_id: str,
-    keywords: str,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """设置任务的关键字，用于 ASR 识别时的上下文"""
@@ -676,6 +676,15 @@ async def set_keywords(
 
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
+
+    # 从 JSON body 中读取 keywords
+    try:
+        body = await request.json()
+        keywords = body.get('keywords', '') if body else ''
+    except Exception:
+        # 兼容纯文本格式
+        body = await request.body()
+        keywords = body.decode('utf-8') if body else ''
 
     task.keywords = keywords
     db.commit()
